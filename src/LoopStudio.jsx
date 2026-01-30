@@ -363,6 +363,26 @@ function LoopStudio({ config = {} }) {
     if (convolverRef.current) node.connect(convolverRef.current);
   }, []);
   
+  // Helper to ensure audio context is running (critical for desktop browsers)
+  const ensureAudioContext = React.useCallback(async () => {
+    const ctx = audioCtxRef.current;
+    if (!ctx) {
+      console.error('❌ No audio context!');
+      return false;
+    }
+    if (ctx.state === 'suspended') {
+      console.log('⚠️ Audio context suspended, resuming...');
+      try {
+        await ctx.resume();
+        console.log('✅ Audio context resumed to:', ctx.state);
+      } catch (err) {
+        console.error('❌ Failed to resume audio context:', err);
+        return false;
+      }
+    }
+    return true;
+  }, []);
+  
   // ═══════════════════════════════════════════════════════════════
   // LOOPER RECORDING
   // ═══════════════════════════════════════════════════════════════
@@ -379,13 +399,11 @@ function LoopStudio({ config = {} }) {
   // ═══════════════════════════════════════════════════════════════
   // DRUM SOUNDS
   // ═══════════════════════════════════════════════════════════════
-  const playKick = React.useCallback(() => {
+  const playKick = React.useCallback(async () => {
+    if (!(await ensureAudioContext())) return;
     const ctx = audioCtxRef.current;
-    if (!ctx) {
-      console.error('❌ No audio context!');
-      return;
-    }
-    console.log('🥁 Playing kick');
+    
+    console.log('🥁 Playing kick, context state:', ctx.state);
     const now = ctx.currentTime;
     const attack = kickParams.attack;
     const decay = kickParams.decay;
@@ -403,6 +421,7 @@ function LoopStudio({ config = {} }) {
       playToMaster(gain);
       osc.start(now);
       osc.stop(now + decay + 0.1);
+      console.log('✅ Kick oscillator started');
     }
     
     if (kickParams.punch > 0) {
@@ -461,7 +480,7 @@ function LoopStudio({ config = {} }) {
     }
     
     recordEvent(0, 'kick');
-  }, [kickParams, playToMaster, recordEvent]);
+  }, [kickParams, playToMaster, recordEvent, ensureAudioContext]);
   
   const playSnare = React.useCallback(() => {
     const ctx = audioCtxRef.current;
