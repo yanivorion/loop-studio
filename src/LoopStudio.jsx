@@ -1076,7 +1076,7 @@ function LoopStudio({ config = {} }) {
   // RENDER
   // ═══════════════════════════════════════════════════════════════
   return (
-    <div className="loop-studio" style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif", background: '#0c0c10', color: '#f0f0f5', minHeight: '100vh', display: 'flex', flexDirection: 'column', maxWidth: isTablet ? '1400px' : '500px', margin: '0 auto', userSelect: 'none', WebkitUserSelect: 'none' }}>
+    <div className="loop-studio" style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif", background: '#0c0c10', color: '#f0f0f5', height: '100vh', display: 'flex', flexDirection: 'column', maxWidth: isTablet ? '1400px' : '500px', margin: '0 auto', userSelect: 'none', WebkitUserSelect: 'none', overflow: 'hidden' }}>
       {/* Start Screen */}
       {!audioReady && (
         <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.95)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', zIndex: 1000, gap: 24 }}>
