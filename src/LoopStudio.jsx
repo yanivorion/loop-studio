@@ -81,6 +81,13 @@ function LoopStudio({ config = {} }) {
     { name: 'E', color: '#a855f7', group: 'bass', steps: new Array(16).fill(false), muted: false },
     { name: 'F', color: '#a855f7', group: 'bass', steps: new Array(16).fill(false), muted: false },
     { name: 'G', color: '#a855f7', group: 'bass', steps: new Array(16).fill(false), muted: false },
+    { name: 'C4', color: '#ec4899', group: 'piano', steps: new Array(16).fill(false), muted: false },
+    { name: 'E4', color: '#ec4899', group: 'piano', steps: new Array(16).fill(false), muted: false },
+    { name: 'G4', color: '#ec4899', group: 'piano', steps: new Array(16).fill(false), muted: false },
+    { name: 'Cm', color: '#6366f1', group: 'pads', steps: new Array(16).fill(false), muted: false },
+    { name: 'Fm', color: '#6366f1', group: 'pads', steps: new Array(16).fill(false), muted: false },
+    { name: 'L-C4', color: '#f59e0b', group: 'lead', steps: new Array(16).fill(false), muted: false },
+    { name: 'L-E4', color: '#f59e0b', group: 'lead', steps: new Array(16).fill(false), muted: false },
   ]);
   
   // Refs
@@ -903,8 +910,15 @@ function LoopStudio({ config = {} }) {
       case 'E': playBass('E'); break;
       case 'F': playBass('F'); break;
       case 'G': playBass('G'); break;
+      case 'C4': playPiano('C4'); break;
+      case 'E4': playPiano('E4'); break;
+      case 'G4': playPiano('G4'); break;
+      case 'Cm': playPad('Cm'); break;
+      case 'Fm': playPad('Fm'); break;
+      case 'L-C4': playLead('C4'); break;
+      case 'L-E4': playLead('E4'); break;
     }
-  }, [playKick, playSnare, playClap, playHat, playBass, tracks]);
+  }, [playKick, playSnare, playClap, playHat, playBass, playPiano, playPad, playLead, tracks]);
   
   const toggleStep = React.useCallback((trackIndex, stepIndex) => {
     setTracks(prev => {
@@ -1234,23 +1248,21 @@ function LoopStudio({ config = {} }) {
               {!isTablet && <button onClick={() => setCurrentBar((currentBar - 1 + bars) % bars)} style={{ width: 50, height: 50, fontSize: 22, fontWeight: 700, background: '#1e1e26', color: '#fff', border: '2px solid #333340', borderRadius: 10, cursor: 'pointer' }}>◀</button>}
               <div style={{ textAlign: 'center' }}>
                 <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>
-                  {isTablet ? `Bars ${currentBar + 1}-${Math.min(currentBar + 2, bars)}` : `Bar ${currentBar + 1}`} of {bars}
+                  Bar {currentBar + 1} of {bars}
                 </div>
                 <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
-                  {Array.from({ length: isTablet ? Math.ceil(bars / 2) : bars }, (_, i) => {
-                    const barNum = isTablet ? i * 2 : i;
-                    const isActive = isTablet ? (currentBar === barNum || currentBar === barNum + 1) : currentBar === barNum;
-                    return (
-                      <button key={i} onClick={() => setCurrentBar(barNum)} style={{ width: 14, height: 14, background: isActive ? '#ff3b5c' : '#333340', borderRadius: '50%', border: 'none', cursor: 'pointer', boxShadow: isActive ? '0 0 10px #ff3b5c' : 'none' }} />
-                    );
-                  })}
+                  {Array.from({ length: bars }, (_, i) => (
+                    <button key={i} onClick={() => setCurrentBar(i)} style={{ width: 14, height: 14, background: i === currentBar ? '#ff3b5c' : '#333340', borderRadius: '50%', border: 'none', cursor: 'pointer', boxShadow: i === currentBar ? '0 0 10px #ff3b5c' : 'none' }} />
+                  ))}
                 </div>
               </div>
               {!isTablet && <button onClick={() => setCurrentBar((currentBar + 1) % bars)} style={{ width: 50, height: 50, fontSize: 22, fontWeight: 700, background: '#1e1e26', color: '#fff', border: '2px solid #333340', borderRadius: 10, cursor: 'pointer' }}>▶</button>}
             </div>
-            {['drums', 'bass'].map(group => (
+            {['drums', 'bass', 'piano', 'pads', 'lead'].map(group => (
               <div key={group} style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#8888a0', textTransform: 'uppercase', letterSpacing: 1, padding: '8px 0' }}>{group === 'drums' ? '🥁 Drums' : '🔊 Bass'}</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#8888a0', textTransform: 'uppercase', letterSpacing: 1, padding: '8px 0' }}>
+                  {group === 'drums' ? '🥁 Drums' : group === 'bass' ? '🔊 Bass' : group === 'piano' ? '🎹 Piano' : group === 'pads' ? '🎸 Pads' : '🎤 Lead'}
+                </div>
                 {tracks.filter(t => t.group === group).map(track => {
                   const trackIdx = tracks.findIndex(t => t.name === track.name);
                   return (
