@@ -102,6 +102,7 @@ function LoopStudio({ config = {} }) {
   const loopStartRef = React.useRef(0);
   const loopIntervalRef = React.useRef(null);
   const recordingRef = React.useRef(false);
+  const tracksRef = React.useRef(tracks);
   
   const loopLength = 4000;
   
@@ -948,12 +949,14 @@ function LoopStudio({ config = {} }) {
     playIntervalRef.current = setInterval(() => {
       setCurrentStep(step);
       setCurrentBar(Math.floor(step / 4));
-      tracks.forEach((track, idx) => {
+      // Use tracksRef to get current state, not closure
+      const currentTracks = tracksRef.current;
+      currentTracks.forEach((track, idx) => {
         if (track.steps[step] && !track.muted) playTrack(idx);
       });
       step = (step + 1) % totalSteps;
     }, stepTime * 1000);
-  }, [audioReady, bars, bpm, tracks, playTrack]);
+  }, [audioReady, bars, bpm, playTrack]);
   
   const stopSequencer = React.useCallback(() => {
     setSeqPlaying(false);
@@ -982,6 +985,11 @@ function LoopStudio({ config = {} }) {
     setTracks(prev => prev.map(t => ({ ...t, steps: new Array(bars * 4).fill(false) })));
     setCurrentBar(0);
   }, [bars]);
+  
+  // Keep tracksRef in sync with tracks state
+  React.useEffect(() => {
+    tracksRef.current = tracks;
+  }, [tracks]);
   
   React.useEffect(() => {
     return () => {
