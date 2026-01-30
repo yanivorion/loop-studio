@@ -1,0 +1,1036 @@
+import React from 'react';
+
+function LoopStudio({ config = {} }) {
+  // ═══════════════════════════════════════════════════════════════
+  // STATE
+  // ═══════════════════════════════════════════════════════════════
+  const [audioReady, setAudioReady] = React.useState(false);
+  const [activeTab, setActiveTab] = React.useState('drums');
+  const [bpm, setBpm] = React.useState(parseInt(config?.defaultBpm || '128'));
+  const [bars, setBars] = React.useState(2);
+  const [currentBar, setCurrentBar] = React.useState(0);
+  const [seqPlaying, setSeqPlaying] = React.useState(false);
+  const [currentStep, setCurrentStep] = React.useState(0);
+  
+  // Looper state
+  const [isRecording, setIsRecording] = React.useState(false);
+  const [isLoopPlaying, setIsLoopPlaying] = React.useState(false);
+  const [loopTracks, setLoopTracks] = React.useState([[], [], [], []]);
+  const [playheadPos, setPlayheadPos] = React.useState(0);
+  
+  // Bass state
+  const [bassOctave, setBassOctave] = React.useState(2);
+  const [bassPreset, setBassPreset] = React.useState('squelch');
+  const [bassParams, setBassParams] = React.useState({ cutoff: 600, reso: 22, sub: 0.2, drive: 0.4 });
+  
+  // Kick state
+  const [kickParams, setKickParams] = React.useState({ sub: 0.75, punch: 0.5, click: 0.5, noise: 0.25 });
+  
+  // Lead state
+  const [leadWave, setLeadWave] = React.useState('sawtooth');
+  
+  // Sequencer tracks
+  const [tracks, setTracks] = React.useState(() => [
+    { name: 'KICK', color: '#ff3b5c', group: 'drums', steps: new Array(16).fill(false), muted: false },
+    { name: 'SNARE', color: '#fbbf24', group: 'drums', steps: new Array(16).fill(false), muted: false },
+    { name: 'CLAP', color: '#22c55e', group: 'drums', steps: new Array(16).fill(false), muted: false },
+    { name: 'HAT', color: '#22d3ee', group: 'drums', steps: new Array(16).fill(false), muted: false },
+    { name: 'OPEN', color: '#3b82f6', group: 'drums', steps: new Array(16).fill(false), muted: false },
+    { name: 'C', color: '#a855f7', group: 'bass', steps: new Array(16).fill(false), muted: false },
+    { name: 'D', color: '#a855f7', group: 'bass', steps: new Array(16).fill(false), muted: false },
+    { name: 'E', color: '#a855f7', group: 'bass', steps: new Array(16).fill(false), muted: false },
+    { name: 'F', color: '#a855f7', group: 'bass', steps: new Array(16).fill(false), muted: false },
+    { name: 'G', color: '#a855f7', group: 'bass', steps: new Array(16).fill(false), muted: false },
+  ]);
+  
+  // Refs
+  const audioCtxRef = React.useRef(null);
+  const masterGainRef = React.useRef(null);
+  const convolverRef = React.useRef(null);
+  const delayNodeRef = React.useRef(null);
+  const playIntervalRef = React.useRef(null);
+  const loopStartRef = React.useRef(0);
+  const loopIntervalRef = React.useRef(null);
+  const recordingRef = React.useRef(false);
+  
+  const loopLength = 4000;
+  
+  // Responsive check
+  const [isTablet, setIsTablet] = React.useState(false);
+  React.useEffect(() => {
+    const check = () => setIsTablet(window.innerWidth >= 768);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
+  
+  // ═══════════════════════════════════════════════════════════════
+  // AUDIO INITIALIZATION
+  // ═══════════════════════════════════════════════════════════════
+  const initAudio = React.useCallback(async () => {
+    if (audioCtxRef.current) return;
+    
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      await ctx.resume();
+      
+      // iOS unlock
+      const buffer = ctx.createBuffer(1, 1, 22050);
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(ctx.destination);
+      source.start(0);
+      
+      // Master gain
+      const master = ctx.createGain();
+      master.gain.value = 0.8;
+      
+      // Delay
+      const delay = ctx.createDelay(1.0);
+      delay.delayTime.value = 0.3;
+      const delayFb = ctx.createGain();
+      delayFb.gain.value = 0.3;
+      const delayMix = ctx.createGain();
+      delayMix.gain.value = 0.2;
+      delay.connect(delayFb);
+      delayFb.connect(delay);
+      delay.connect(delayMix);
+      delayMix.connect(master);
+      
+      // Reverb
+      const convolver = ctx.createConvolver();
+      const rate = ctx.sampleRate;
+      const length = rate * 2;
+      const impulse = ctx.createBuffer(2, length, rate);
+      for (let ch = 0; ch < 2; ch++) {
+        const data = impulse.getChannelData(ch);
+        for (let i = 0; i < length; i++) {
+          data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, 2);
+        }
+      }
+      convolver.buffer = impulse;
+      const reverbMix = ctx.createGain();
+      reverbMix.gain.value = 0.15;
+      convolver.connect(reverbMix);
+      reverbMix.connect(master);
+      
+      master.connect(ctx.destination);
+      
+      audioCtxRef.current = ctx;
+      masterGainRef.current = master;
+      convolverRef.current = convolver;
+      delayNodeRef.current = delay;
+      
+      setAudioReady(true);
+    } catch (err) {
+      console.error('Audio init failed:', err);
+    }
+  }, []);
+  
+  const playToMaster = React.useCallback((node) => {
+    if (masterGainRef.current) node.connect(masterGainRef.current);
+    if (delayNodeRef.current) node.connect(delayNodeRef.current);
+    if (convolverRef.current) node.connect(convolverRef.current);
+  }, []);
+  
+  // ═══════════════════════════════════════════════════════════════
+  // LOOPER RECORDING
+  // ═══════════════════════════════════════════════════════════════
+  const recordEvent = React.useCallback((track, sound) => {
+    if (!recordingRef.current) return;
+    const time = (Date.now() - loopStartRef.current) % loopLength;
+    setLoopTracks(prev => {
+      const newTracks = [...prev];
+      newTracks[track] = [...newTracks[track], { time, sound }];
+      return newTracks;
+    });
+  }, []);
+  
+  // ═══════════════════════════════════════════════════════════════
+  // DRUM SOUNDS
+  // ═══════════════════════════════════════════════════════════════
+  const playKick = React.useCallback(() => {
+    const ctx = audioCtxRef.current;
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    
+    if (kickParams.sub > 0) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(150, now);
+      osc.frequency.exponentialRampToValueAtTime(40, now + 0.08);
+      gain.gain.setValueAtTime(kickParams.sub * 0.9, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+      osc.connect(gain);
+      playToMaster(gain);
+      osc.start(now);
+      osc.stop(now + 0.5);
+    }
+    
+    if (kickParams.punch > 0) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(180, now);
+      osc.frequency.exponentialRampToValueAtTime(60, now + 0.03);
+      gain.gain.setValueAtTime(kickParams.punch * 0.6, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+      osc.connect(gain);
+      playToMaster(gain);
+      osc.start(now);
+      osc.stop(now + 0.2);
+    }
+    
+    if (kickParams.click > 0) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const filter = ctx.createBiquadFilter();
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(1800, now);
+      osc.frequency.exponentialRampToValueAtTime(300, now + 0.02);
+      filter.type = 'bandpass';
+      filter.frequency.value = 2500;
+      filter.Q.value = 2;
+      gain.gain.setValueAtTime(kickParams.click * 0.4, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.03);
+      osc.connect(filter);
+      filter.connect(gain);
+      playToMaster(gain);
+      osc.start(now);
+      osc.stop(now + 0.05);
+    }
+    
+    if (kickParams.noise > 0) {
+      const bufLen = Math.floor(ctx.sampleRate * 0.03);
+      const buffer = ctx.createBuffer(1, bufLen, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufLen; i++) data[i] = Math.random() * 2 - 1;
+      const noise = ctx.createBufferSource();
+      const noiseGain = ctx.createGain();
+      const noiseFilter = ctx.createBiquadFilter();
+      noise.buffer = buffer;
+      noiseFilter.type = 'highpass';
+      noiseFilter.frequency.value = 1000;
+      noiseGain.gain.setValueAtTime(kickParams.noise * 0.3, now);
+      noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.02);
+      noise.connect(noiseFilter);
+      noiseFilter.connect(noiseGain);
+      playToMaster(noiseGain);
+      noise.start(now);
+    }
+    
+    recordEvent(0, 'kick');
+  }, [kickParams, playToMaster, recordEvent]);
+  
+  const playSnare = React.useCallback(() => {
+    const ctx = audioCtxRef.current;
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    
+    const osc = ctx.createOscillator();
+    const oscGain = ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(220, now);
+    osc.frequency.exponentialRampToValueAtTime(120, now + 0.08);
+    oscGain.gain.setValueAtTime(0.6, now);
+    oscGain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+    osc.connect(oscGain);
+    playToMaster(oscGain);
+    osc.start(now);
+    osc.stop(now + 0.15);
+    
+    const bufLen = Math.floor(ctx.sampleRate * 0.2);
+    const buffer = ctx.createBuffer(1, bufLen, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufLen; i++) data[i] = Math.random() * 2 - 1;
+    const noise = ctx.createBufferSource();
+    const noiseGain = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+    noise.buffer = buffer;
+    filter.type = 'highpass';
+    filter.frequency.value = 2000;
+    noiseGain.gain.setValueAtTime(0.45, now);
+    noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+    noise.connect(filter);
+    filter.connect(noiseGain);
+    playToMaster(noiseGain);
+    noise.start(now);
+    
+    recordEvent(0, 'snare');
+  }, [playToMaster, recordEvent]);
+  
+  const playClap = React.useCallback(() => {
+    const ctx = audioCtxRef.current;
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    
+    for (let i = 0; i < 4; i++) {
+      const delay = i * 0.012;
+      const bufLen = Math.floor(ctx.sampleRate * 0.08);
+      const buffer = ctx.createBuffer(1, bufLen, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let j = 0; j < bufLen; j++) data[j] = Math.random() * 2 - 1;
+      const noise = ctx.createBufferSource();
+      const gain = ctx.createGain();
+      const filter = ctx.createBiquadFilter();
+      noise.buffer = buffer;
+      filter.type = 'bandpass';
+      filter.frequency.value = 1800;
+      filter.Q.value = 1.5;
+      gain.gain.setValueAtTime(0, now + delay);
+      gain.gain.linearRampToValueAtTime(0.5, now + delay + 0.004);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.12);
+      noise.connect(filter);
+      filter.connect(gain);
+      playToMaster(gain);
+      noise.start(now + delay);
+    }
+    recordEvent(0, 'clap');
+  }, [playToMaster, recordEvent]);
+  
+  const playSnap = React.useCallback(() => {
+    const ctx = audioCtxRef.current;
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(2500, now);
+    osc.frequency.exponentialRampToValueAtTime(800, now + 0.01);
+    filter.type = 'bandpass';
+    filter.frequency.value = 1500;
+    filter.Q.value = 3;
+    gain.gain.setValueAtTime(0.6, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+    osc.connect(filter);
+    filter.connect(gain);
+    playToMaster(gain);
+    osc.start(now);
+    osc.stop(now + 0.06);
+    recordEvent(0, 'snap');
+  }, [playToMaster, recordEvent]);
+  
+  const playHat = React.useCallback((open = false) => {
+    const ctx = audioCtxRef.current;
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const duration = open ? 0.25 : 0.05;
+    
+    const bufLen = Math.floor(ctx.sampleRate * duration);
+    const buffer = ctx.createBuffer(1, bufLen, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufLen; i++) data[i] = Math.random() * 2 - 1;
+    const noise = ctx.createBufferSource();
+    const gain = ctx.createGain();
+    const hp = ctx.createBiquadFilter();
+    const bp = ctx.createBiquadFilter();
+    noise.buffer = buffer;
+    hp.type = 'highpass';
+    hp.frequency.value = 7000;
+    bp.type = 'bandpass';
+    bp.frequency.value = 10000;
+    bp.Q.value = 1;
+    gain.gain.setValueAtTime(0.35, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+    noise.connect(hp);
+    hp.connect(bp);
+    bp.connect(gain);
+    playToMaster(gain);
+    noise.start(now);
+    recordEvent(0, open ? 'open' : 'hat');
+  }, [playToMaster, recordEvent]);
+  
+  const playTom = React.useCallback(() => {
+    const ctx = audioCtxRef.current;
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(200, now);
+    osc.frequency.exponentialRampToValueAtTime(80, now + 0.2);
+    gain.gain.setValueAtTime(0.7, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+    osc.connect(gain);
+    playToMaster(gain);
+    osc.start(now);
+    osc.stop(now + 0.35);
+    recordEvent(0, 'tom');
+  }, [playToMaster, recordEvent]);
+  
+  const playPerc = React.useCallback(() => {
+    const ctx = audioCtxRef.current;
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    
+    const osc = ctx.createOscillator();
+    const osc2 = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = 800;
+    osc2.type = 'sine';
+    osc2.frequency.value = 1200;
+    gain.gain.setValueAtTime(0.5, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+    osc.connect(gain);
+    osc2.connect(gain);
+    playToMaster(gain);
+    osc.start(now);
+    osc2.start(now);
+    osc.stop(now + 0.1);
+    osc2.stop(now + 0.1);
+    recordEvent(0, 'perc');
+  }, [playToMaster, recordEvent]);
+  
+  const drumMap = React.useMemo(() => ({
+    kick: playKick, snare: playSnare, clap: playClap, snap: playSnap,
+    hat: () => playHat(false), open: () => playHat(true), tom: playTom, perc: playPerc
+  }), [playKick, playSnare, playClap, playSnap, playHat, playTom, playPerc]);
+  
+  // ═══════════════════════════════════════════════════════════════
+  // BASS SYNTH (Psytrance/Hi-Tech)
+  // ═══════════════════════════════════════════════════════════════
+  const bassPresets = {
+    squelch: { name: 'Squelch', osc: ['sawtooth', 'square'], detune: 5, cutoff: 600, reso: 22, sub: 0.2, drive: 0.4, filterEnv: true },
+    psybass: { name: 'Psy Bass', osc: ['sawtooth', 'sawtooth'], detune: 10, cutoff: 1200, reso: 15, sub: 0.3, drive: 0.5, fm: true },
+    hitech: { name: 'Hi-Tech', osc: ['square', 'sawtooth'], detune: 3, cutoff: 2000, reso: 12, sub: 0.1, drive: 0.6, filterEnv: true },
+    dark: { name: 'Dark', osc: ['sawtooth', 'triangle'], detune: 20, cutoff: 400, reso: 8, sub: 0.6, drive: 0.3 },
+    forest: { name: 'Forest', osc: ['sawtooth', 'sawtooth'], detune: 25, cutoff: 500, reso: 10, sub: 0.5, drive: 0.2, lfo: true },
+    growl: { name: 'Growl', osc: ['sawtooth', 'square'], detune: 8, cutoff: 700, reso: 20, sub: 0.3, drive: 0.7, filterEnv: true },
+    reese: { name: 'Reese', osc: ['sawtooth', 'sawtooth'], detune: 15, cutoff: 800, reso: 4, sub: 0.4, drive: 0 },
+    acid: { name: 'Acid', osc: ['sawtooth', 'sawtooth'], detune: 0, cutoff: 400, reso: 18, sub: 0.1, drive: 0.3 },
+    sub: { name: 'Sub', osc: ['sine', 'sine'], detune: 0, cutoff: 300, reso: 0, sub: 1, drive: 0 },
+  };
+  
+  const playBass = React.useCallback((note, octave = bassOctave) => {
+    const ctx = audioCtxRef.current;
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    
+    const notes = { 'C': 0, 'C#': 1, 'D': 2, 'D#': 3, 'E': 4, 'F': 5, 'F#': 6, 'G': 7, 'G#': 8, 'A': 9, 'A#': 10, 'B': 11 };
+    const freq = 440 * Math.pow(2, (notes[note] + (octave - 4) * 12 - 9) / 12);
+    const preset = bassPresets[bassPreset];
+    const duration = 0.4;
+    
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.Q.value = bassParams.reso;
+    if (preset.filterEnv) {
+      filter.frequency.setValueAtTime(bassParams.cutoff * 4, now);
+      filter.frequency.exponentialRampToValueAtTime(bassParams.cutoff * 0.5, now + 0.1);
+    } else {
+      filter.frequency.value = bassParams.cutoff;
+    }
+    
+    const mainGain = ctx.createGain();
+    mainGain.gain.setValueAtTime(0, now);
+    mainGain.gain.linearRampToValueAtTime(0.5, now + 0.01);
+    mainGain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+    
+    const osc1 = ctx.createOscillator();
+    osc1.type = preset.osc[0];
+    osc1.frequency.value = freq;
+    osc1.detune.value = -preset.detune;
+    
+    const osc2 = ctx.createOscillator();
+    osc2.type = preset.osc[1];
+    osc2.frequency.value = freq;
+    osc2.detune.value = preset.detune;
+    
+    const subOsc = ctx.createOscillator();
+    subOsc.type = 'sine';
+    subOsc.frequency.value = freq / 2;
+    const subGain = ctx.createGain();
+    subGain.gain.value = bassParams.sub * 0.5;
+    
+    if (preset.fm) {
+      const modOsc = ctx.createOscillator();
+      const modGain = ctx.createGain();
+      modOsc.type = 'sine';
+      modOsc.frequency.value = freq * 2;
+      modGain.gain.setValueAtTime(freq * 3, now);
+      modGain.gain.exponentialRampToValueAtTime(freq * 0.2, now + 0.15);
+      modOsc.connect(modGain);
+      modGain.connect(osc1.frequency);
+      modOsc.start(now);
+      modOsc.stop(now + duration);
+    }
+    
+    if (preset.lfo) {
+      const lfo = ctx.createOscillator();
+      const lfoGain = ctx.createGain();
+      lfo.type = 'sine';
+      lfo.frequency.value = 6;
+      lfoGain.gain.value = bassParams.cutoff * 0.4;
+      lfo.connect(lfoGain);
+      lfoGain.connect(filter.frequency);
+      lfo.start(now);
+      lfo.stop(now + duration);
+    }
+    
+    let outputNode = filter;
+    if (bassParams.drive > 0) {
+      const waveshaper = ctx.createWaveShaper();
+      const curve = new Float32Array(256);
+      for (let i = 0; i < 256; i++) {
+        const x = (i / 128) - 1;
+        curve[i] = Math.tanh(x * (1 + bassParams.drive * 8));
+      }
+      waveshaper.curve = curve;
+      filter.connect(waveshaper);
+      outputNode = waveshaper;
+    }
+    
+    osc1.connect(filter);
+    osc2.connect(filter);
+    subOsc.connect(subGain);
+    subGain.connect(mainGain);
+    outputNode.connect(mainGain);
+    playToMaster(mainGain);
+    
+    osc1.start(now);
+    osc2.start(now);
+    subOsc.start(now);
+    osc1.stop(now + duration);
+    osc2.stop(now + duration);
+    subOsc.stop(now + duration);
+  }, [bassOctave, bassPreset, bassParams, playToMaster]);
+  
+  // ═══════════════════════════════════════════════════════════════
+  // PIANO
+  // ═══════════════════════════════════════════════════════════════
+  const noteFreqs = {
+    'C3': 130.81, 'C#3': 138.59, 'D3': 146.83, 'D#3': 155.56, 'E3': 164.81,
+    'F3': 174.61, 'F#3': 185.00, 'G3': 196.00, 'G#3': 207.65, 'A3': 220.00,
+    'A#3': 233.08, 'B3': 246.94, 'C4': 261.63, 'C#4': 277.18, 'D4': 293.66,
+    'D#4': 311.13, 'E4': 329.63, 'F4': 349.23, 'F#4': 369.99, 'G4': 392.00,
+    'G#4': 415.30, 'A4': 440.00, 'A#4': 466.16, 'B4': 493.88, 'C5': 523.25
+  };
+  
+  const playPiano = React.useCallback((note) => {
+    const ctx = audioCtxRef.current;
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const freq = noteFreqs[note];
+    if (!freq) return;
+    
+    const harmonics = [1, 2, 3, 4, 5, 6];
+    const amps = [0.4, 0.2, 0.1, 0.08, 0.04, 0.02];
+    
+    harmonics.forEach((h, idx) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq * h;
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(amps[idx], now + 0.01);
+      gain.gain.exponentialRampToValueAtTime(amps[idx] * 0.3, now + 0.1);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 2);
+      osc.connect(gain);
+      playToMaster(gain);
+      osc.start(now);
+      osc.stop(now + 2.5);
+    });
+    
+    recordEvent(1, note);
+  }, [playToMaster, recordEvent]);
+  
+  // ═══════════════════════════════════════════════════════════════
+  // PAD SYNTH
+  // ═══════════════════════════════════════════════════════════════
+  const chords = {
+    'Cm': [261.63, 311.13, 392.00],
+    'Fm': [349.23, 415.30, 523.25],
+    'Ab': [415.30, 523.25, 622.25],
+    'Gm': [392.00, 466.16, 587.33],
+    'Eb': [311.13, 392.00, 466.16],
+    'Bb': [466.16, 587.33, 698.46]
+  };
+  
+  const playPad = React.useCallback((chord) => {
+    const ctx = audioCtxRef.current;
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const notes = chords[chord];
+    if (!notes) return;
+    
+    notes.forEach(freq => {
+      for (let d = -2; d <= 2; d++) {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.value = freq * Math.pow(2, d * 0.002);
+        gain.gain.setValueAtTime(0, now);
+        gain.gain.linearRampToValueAtTime(0.06, now + 0.3);
+        gain.gain.setValueAtTime(0.06, now + 1.5);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 3);
+        osc.connect(gain);
+        playToMaster(gain);
+        osc.start(now);
+        osc.stop(now + 3.5);
+      }
+    });
+    
+    recordEvent(2, chord);
+  }, [playToMaster, recordEvent]);
+  
+  // ═══════════════════════════════════════════════════════════════
+  // LEAD SYNTH
+  // ═══════════════════════════════════════════════════════════════
+  const playLead = React.useCallback((note) => {
+    const ctx = audioCtxRef.current;
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const freq = noteFreqs[note];
+    if (!freq) return;
+    
+    const osc = ctx.createOscillator();
+    const osc2 = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+    
+    osc.type = leadWave;
+    osc2.type = leadWave;
+    osc.frequency.value = freq;
+    osc2.frequency.value = freq * 1.005;
+    
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(8000, now);
+    filter.frequency.exponentialRampToValueAtTime(2000, now + 0.3);
+    filter.Q.value = 2;
+    
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(0.25, now + 0.02);
+    gain.gain.setValueAtTime(0.25, now + 0.3);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+    
+    osc.connect(filter);
+    osc2.connect(filter);
+    filter.connect(gain);
+    playToMaster(gain);
+    
+    osc.start(now);
+    osc2.start(now);
+    osc.stop(now + 1);
+    osc2.stop(now + 1);
+    
+    recordEvent(3, note);
+  }, [leadWave, playToMaster, recordEvent]);
+  
+  // ═══════════════════════════════════════════════════════════════
+  // LOOPER
+  // ═══════════════════════════════════════════════════════════════
+  const startRecording = React.useCallback(() => {
+    if (!audioReady) return;
+    setIsRecording(true);
+    recordingRef.current = true;
+    loopStartRef.current = Date.now();
+    setTimeout(() => {
+      setIsRecording(false);
+      recordingRef.current = false;
+    }, loopLength);
+  }, [audioReady]);
+  
+  const triggerSound = React.useCallback((track, sound) => {
+    switch(track) {
+      case 0: if (drumMap[sound]) drumMap[sound](); break;
+      case 1: playPiano(sound); break;
+      case 2: playPad(sound); break;
+      case 3: playLead(sound); break;
+    }
+  }, [drumMap, playPiano, playPad, playLead]);
+  
+  const playLoop = React.useCallback(() => {
+    if (isLoopPlaying) return;
+    if (loopTracks.every(t => t.length === 0)) return;
+    
+    setIsLoopPlaying(true);
+    const playStart = Date.now();
+    
+    loopIntervalRef.current = setInterval(() => {
+      const elapsed = (Date.now() - playStart) % loopLength;
+      const lastElapsed = (elapsed - 16 + loopLength) % loopLength;
+      setPlayheadPos((elapsed / loopLength) * 100);
+      
+      loopTracks.forEach((track, trackIdx) => {
+        track.forEach(evt => {
+          if ((lastElapsed < evt.time && evt.time <= elapsed) ||
+              (lastElapsed > elapsed && (evt.time <= elapsed || evt.time > lastElapsed))) {
+            triggerSound(trackIdx, evt.sound);
+          }
+        });
+      });
+    }, 16);
+  }, [isLoopPlaying, loopTracks, triggerSound]);
+  
+  const stopLoop = React.useCallback(() => {
+    setIsLoopPlaying(false);
+    setIsRecording(false);
+    recordingRef.current = false;
+    setPlayheadPos(0);
+    if (loopIntervalRef.current) clearInterval(loopIntervalRef.current);
+  }, []);
+  
+  const clearLoopTracks = React.useCallback(() => {
+    stopLoop();
+    setLoopTracks([[], [], [], []]);
+  }, [stopLoop]);
+  
+  // ═══════════════════════════════════════════════════════════════
+  // SEQUENCER
+  // ═══════════════════════════════════════════════════════════════
+  const playTrack = React.useCallback((trackIndex) => {
+    const track = tracks[trackIndex];
+    if (!track) return;
+    switch (track.name) {
+      case 'KICK': playKick(); break;
+      case 'SNARE': playSnare(); break;
+      case 'CLAP': playClap(); break;
+      case 'HAT': playHat(false); break;
+      case 'OPEN': playHat(true); break;
+      case 'C': playBass('C'); break;
+      case 'D': playBass('D'); break;
+      case 'E': playBass('E'); break;
+      case 'F': playBass('F'); break;
+      case 'G': playBass('G'); break;
+    }
+  }, [playKick, playSnare, playClap, playHat, playBass, tracks]);
+  
+  const toggleStep = React.useCallback((trackIndex, stepIndex) => {
+    setTracks(prev => {
+      const newTracks = [...prev];
+      newTracks[trackIndex] = { ...newTracks[trackIndex], steps: [...newTracks[trackIndex].steps] };
+      newTracks[trackIndex].steps[stepIndex] = !newTracks[trackIndex].steps[stepIndex];
+      if (newTracks[trackIndex].steps[stepIndex]) playTrack(trackIndex);
+      return newTracks;
+    });
+  }, [playTrack]);
+  
+  const toggleMute = React.useCallback((trackIndex) => {
+    setTracks(prev => {
+      const newTracks = [...prev];
+      newTracks[trackIndex] = { ...newTracks[trackIndex], muted: !newTracks[trackIndex].muted };
+      return newTracks;
+    });
+  }, []);
+  
+  const startSequencer = React.useCallback(() => {
+    if (!audioReady) return;
+    setSeqPlaying(true);
+    const totalSteps = bars * 4;
+    const stepTime = (60 / bpm) / 4;
+    let step = 0;
+    
+    playIntervalRef.current = setInterval(() => {
+      setCurrentStep(step);
+      setCurrentBar(Math.floor(step / 4));
+      tracks.forEach((track, idx) => {
+        if (track.steps[step] && !track.muted) playTrack(idx);
+      });
+      step = (step + 1) % totalSteps;
+    }, stepTime * 1000);
+  }, [audioReady, bars, bpm, tracks, playTrack]);
+  
+  const stopSequencer = React.useCallback(() => {
+    setSeqPlaying(false);
+    if (playIntervalRef.current) clearInterval(playIntervalRef.current);
+    setCurrentStep(0);
+  }, []);
+  
+  const loadPreset = React.useCallback((preset) => {
+    const patterns = {
+      basic: { 0: [0,4,8,12], 1: [4,12], 3: [0,2,4,6,8,10,12,14], 5: [0,8] },
+      psy: { 0: [0,4,8,12], 3: [0,1,2,3,4,5,6,7,8,10,11,12,13,14,15], 5: [0], 6: [4], 7: [8], 8: [12] },
+      hitech: { 0: [0,2,4,6,8,10,12,14], 3: [1,3,5,7,9,11,13,15], 2: [4,12], 5: [0,3], 7: [6,9], 9: [12,15] },
+    };
+    const p = patterns[preset];
+    if (!p) return;
+    setTracks(prev => {
+      const newTracks = prev.map(t => ({ ...t, steps: new Array(bars * 4).fill(false) }));
+      Object.entries(p).forEach(([trackIdx, steps]) => {
+        steps.forEach(s => { if (s < bars * 4) newTracks[parseInt(trackIdx)].steps[s] = true; });
+      });
+      return newTracks;
+    });
+  }, [bars]);
+  
+  React.useEffect(() => {
+    setTracks(prev => prev.map(t => ({ ...t, steps: new Array(bars * 4).fill(false) })));
+    setCurrentBar(0);
+  }, [bars]);
+  
+  React.useEffect(() => {
+    return () => {
+      if (playIntervalRef.current) clearInterval(playIntervalRef.current);
+      if (loopIntervalRef.current) clearInterval(loopIntervalRef.current);
+    };
+  }, []);
+  
+  // ═══════════════════════════════════════════════════════════════
+  // DATA
+  // ═══════════════════════════════════════════════════════════════
+  const drumPads = [
+    { id: 'kick', name: 'Kick', icon: '●', color: '#ff3b5c', play: playKick },
+    { id: 'snare', name: 'Snare', icon: '◐', color: '#ff8c42', play: playSnare },
+    { id: 'clap', name: 'Clap', icon: '◈', color: '#fbbf24', play: playClap },
+    { id: 'snap', name: 'Snap', icon: '◇', color: '#22c55e', play: playSnap },
+    { id: 'hat', name: 'Hi-Hat', icon: '△', color: '#22d3ee', play: () => playHat(false) },
+    { id: 'open', name: 'Open', icon: '▽', color: '#3b82f6', play: () => playHat(true) },
+    { id: 'tom', name: 'Tom', icon: '○', color: '#a855f7', play: playTom },
+    { id: 'perc', name: 'Perc', icon: '✦', color: '#ec4899', play: playPerc },
+  ];
+  
+  const padChords = [
+    { chord: 'Cm', name: 'C Minor', gradient: 'linear-gradient(135deg, #6366f1, #8b5cf6)' },
+    { chord: 'Fm', name: 'F Minor', gradient: 'linear-gradient(135deg, #ec4899, #f43f5e)' },
+    { chord: 'Ab', name: 'A Flat', gradient: 'linear-gradient(135deg, #14b8a6, #22d3ee)' },
+    { chord: 'Gm', name: 'G Minor', gradient: 'linear-gradient(135deg, #f59e0b, #fbbf24)' },
+    { chord: 'Eb', name: 'E Flat', gradient: 'linear-gradient(135deg, #22c55e, #84cc16)' },
+    { chord: 'Bb', name: 'B Flat', gradient: 'linear-gradient(135deg, #3b82f6, #6366f1)' },
+  ];
+  
+  const pianoKeys = ['C3', 'D3', 'E3', 'F3', 'G3', 'A3', 'B3', 'C4', 'D4', 'E4', 'F4', 'G4', 'A4', 'B4', 'C5'];
+  const blackKeys = ['C#3', 'D#3', null, 'F#3', 'G#3', 'A#3', null, 'C#4', 'D#4', null, 'F#4', 'G#4', 'A#4', null];
+  const leadNotes = ['C4', 'D4', 'E4', 'F4', 'G4', 'A4', 'B4', 'C5'];
+  const bassNotes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+  const startStep = currentBar * 4;
+  
+  // ═══════════════════════════════════════════════════════════════
+  // RENDER
+  // ═══════════════════════════════════════════════════════════════
+  return (
+    <div className="loop-studio" style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif", background: '#0c0c10', color: '#f0f0f5', height: '100%', display: 'flex', flexDirection: 'column', maxWidth: isTablet ? '1200px' : '500px', margin: '0 auto', userSelect: 'none', WebkitUserSelect: 'none' }}>
+      {/* Start Screen */}
+      {!audioReady && (
+        <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.95)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', zIndex: 1000, gap: 24 }}>
+          <div style={{ fontSize: 32, fontWeight: 800, background: 'linear-gradient(135deg, #ff3b5c, #a855f7)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>LOOP STUDIO</div>
+          <button onClick={initAudio} style={{ padding: '20px 48px', background: 'linear-gradient(135deg, #ff3b5c, #a855f7)', border: 'none', borderRadius: 16, color: '#fff', fontSize: 18, fontWeight: 700, cursor: 'pointer' }}>TAP TO START</button>
+          <div style={{ fontSize: 13, color: '#8888a0' }}>⚠️ iPhone: Turn OFF silent mode</div>
+        </div>
+      )}
+      
+      {/* Header */}
+      <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: '#16161c', borderBottom: '1px solid #333340' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ width: 32, height: 32, background: 'linear-gradient(135deg, #ff3b5c, #a855f7)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14 }}>L</div>
+          <span style={{ fontSize: 16, fontWeight: 700, letterSpacing: 1 }}>LOOP STUDIO</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ background: '#1e1e26', padding: '6px 12px', borderRadius: 16, fontSize: 13, fontWeight: 600, color: '#22c55e' }}>{bpm} BPM</div>
+          <input type="range" min="60" max="180" value={bpm} onChange={e => setBpm(parseInt(e.target.value))} style={{ width: 80 }} />
+        </div>
+      </header>
+      
+      {/* Looper */}
+      <section style={{ background: '#16161c', borderBottom: '1px solid #333340', padding: '12px 16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#8888a0', textTransform: 'uppercase', letterSpacing: 1 }}>Loop Recorder</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={isRecording ? () => { setIsRecording(false); recordingRef.current = false; } : startRecording} style={{ width: 36, height: 36, borderRadius: '50%', border: isRecording ? 'none' : '2px solid #ff3b5c', background: isRecording ? '#ff3b5c' : '#1e1e26', color: isRecording ? '#fff' : '#ff3b5c', cursor: 'pointer', fontSize: 16, animation: isRecording ? 'pulse 0.5s infinite' : 'none' }}>●</button>
+            <button onClick={isLoopPlaying ? stopLoop : playLoop} style={{ width: 36, height: 36, borderRadius: '50%', border: 'none', background: isLoopPlaying ? '#fbbf24' : '#22c55e', color: '#000', cursor: 'pointer', fontSize: 16 }}>{isLoopPlaying ? '⏸' : '▶'}</button>
+            <button onClick={stopLoop} style={{ width: 36, height: 36, borderRadius: '50%', border: 'none', background: '#1e1e26', color: '#f0f0f5', cursor: 'pointer', fontSize: 16 }}>■</button>
+            <button onClick={clearLoopTracks} style={{ width: 36, height: 36, borderRadius: '50%', border: 'none', background: '#1e1e26', color: '#ff8c42', cursor: 'pointer', fontSize: 12 }}>CLR</button>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {['DRUMS', 'KEYS', 'PADS', 'LEAD'].map((label, idx) => (
+            <div key={label} style={{ flex: 1, height: 40, background: '#1e1e26', borderRadius: 8, position: 'relative', border: `2px solid ${isRecording ? '#ff3b5c' : loopTracks[idx].length ? '#333340' : 'transparent'}` }}>
+              <div style={{ position: 'absolute', top: 4, left: 6, fontSize: 9, fontWeight: 600, color: '#8888a0', textTransform: 'uppercase' }}>{label}</div>
+              <div style={{ position: 'absolute', top: 0, bottom: 0, width: 2, background: '#f0f0f5', left: `${playheadPos}%`, transition: 'left 0.05s linear' }} />
+            </div>
+          ))}
+        </div>
+      </section>
+      
+      {/* Tabs */}
+      <nav style={{ display: 'flex', background: '#16161c', borderBottom: '1px solid #333340', padding: '0 8px', overflowX: 'auto' }}>
+        {['drums', 'bass', 'piano', 'pads', 'lead', 'seq'].map(tab => (
+          <button key={tab} onClick={() => setActiveTab(tab)} style={{ flex: '0 0 auto', padding: '12px 16px', background: 'none', border: 'none', color: activeTab === tab ? '#f0f0f5' : '#8888a0', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, cursor: 'pointer', borderBottom: `2px solid ${activeTab === tab ? '#ff3b5c' : 'transparent'}`, whiteSpace: 'nowrap' }}>{tab === 'seq' ? '▦ Seq' : tab}</button>
+        ))}
+      </nav>
+      
+      {/* Main Content */}
+      <main style={{ flex: 1, overflow: 'auto', padding: 16 }}>
+        {/* DRUMS */}
+        {activeTab === 'drums' && (
+          <div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: isTablet ? 12 : 8 }}>
+              {drumPads.map(pad => (
+                <button key={pad.id} onClick={pad.play} style={{ aspectRatio: 1, background: '#16161c', border: `2px solid ${pad.color}`, borderRadius: 12, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, cursor: 'pointer' }}>
+                  <span style={{ fontSize: isTablet ? 28 : 20 }}>{pad.icon}</span>
+                  <span style={{ fontSize: isTablet ? 11 : 9, fontWeight: 700, textTransform: 'uppercase', color: pad.color }}>{pad.name}</span>
+                </button>
+              ))}
+            </div>
+            <div style={{ background: '#16161c', borderRadius: 12, padding: 16, marginTop: 16 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#8888a0', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ width: 8, height: 8, background: '#ff3b5c', borderRadius: '50%' }} />Kick Synth
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+                {[{ key: 'sub', label: 'Sub' }, { key: 'punch', label: 'Punch' }, { key: 'click', label: 'Click' }, { key: 'noise', label: 'Noise' }].map(p => (
+                  <div key={p.key} style={{ textAlign: 'center' }}>
+                    <input type="range" min="0" max="100" value={kickParams[p.key] * 100} onChange={e => setKickParams(prev => ({ ...prev, [p.key]: parseInt(e.target.value) / 100 }))} style={{ width: '100%' }} />
+                    <div style={{ fontSize: 9, fontWeight: 600, color: '#8888a0', textTransform: 'uppercase', marginTop: 4 }}>{p.label}</div>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: '#f0f0f5' }}>{Math.round(kickParams[p.key] * 100)}%</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* BASS */}
+        {activeTab === 'bass' && (
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16, marginBottom: 16, padding: 12, background: '#16161c', borderRadius: 12 }}>
+              <button onClick={() => bassOctave > 1 && setBassOctave(bassOctave - 1)} style={{ width: 50, height: 50, fontSize: 24, fontWeight: 700, background: '#1e1e26', color: '#fff', border: '2px solid #333340', borderRadius: 10, cursor: 'pointer' }}>−</button>
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#a855f7', minWidth: 80, textAlign: 'center' }}>OCT {bassOctave}</div>
+              <button onClick={() => bassOctave < 4 && setBassOctave(bassOctave + 1)} style={{ width: 50, height: 50, fontSize: 24, fontWeight: 700, background: '#1e1e26', color: '#fff', border: '2px solid #333340', borderRadius: 10, cursor: 'pointer' }}>+</button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 16 }}>
+              {Object.entries(bassPresets).map(([key, preset]) => (
+                <button key={key} onClick={() => { setBassPreset(key); setBassParams({ cutoff: preset.cutoff, reso: preset.reso, sub: preset.sub, drive: preset.drive }); }} style={{ padding: '14px 8px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', background: bassPreset === key ? '#a855f7' : '#1e1e26', color: bassPreset === key ? '#fff' : '#8888a0', border: `2px solid ${bassPreset === key ? '#a855f7' : '#333340'}`, borderRadius: 10, cursor: 'pointer' }}>{preset.name}</button>
+              ))}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 4, padding: 12, background: '#16161c', borderRadius: 12, marginBottom: 16, overflowX: 'auto' }}>
+              {bassNotes.map(n => (
+                <button key={n} onClick={() => playBass(n)} style={{ width: n.includes('#') ? 32 : 40, height: n.includes('#') ? 60 : 80, flexShrink: 0, background: n.includes('#') ? 'linear-gradient(180deg, #343a40 0%, #1a1a2e 100%)' : 'linear-gradient(180deg, #f8f9fa 0%, #dee2e6 100%)', color: n.includes('#') ? '#adb5bd' : '#1a1a2e', border: `1px solid ${n.includes('#') ? '#495057' : '#ced4da'}`, borderRadius: 6, cursor: 'pointer', fontSize: 10, fontWeight: 600, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', paddingBottom: 6, margin: n.includes('#') ? '0 -10px' : 0, zIndex: n.includes('#') ? 1 : 0 }}>{n}</button>
+              ))}
+            </div>
+            <div style={{ background: '#16161c', borderRadius: 12, padding: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
+                {[{ key: 'cutoff', label: 'Cutoff', min: 100, max: 8000, pct: false }, { key: 'reso', label: 'Reso', min: 0, max: 25, pct: false }, { key: 'sub', label: 'Sub', min: 0, max: 100, pct: true }, { key: 'drive', label: 'Drive', min: 0, max: 100, pct: true }].map(p => (
+                  <div key={p.key}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#8888a0', marginBottom: 4 }}>
+                      <span>{p.label}</span>
+                      <span style={{ color: '#fff', fontWeight: 600 }}>{p.pct ? Math.round(bassParams[p.key] * 100) + '%' : bassParams[p.key]}</span>
+                    </div>
+                    <input type="range" min={p.min} max={p.max} value={p.pct ? bassParams[p.key] * 100 : bassParams[p.key]} onChange={e => setBassParams(prev => ({ ...prev, [p.key]: p.pct ? parseInt(e.target.value) / 100 : parseInt(e.target.value) }))} style={{ width: '100%' }} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* PIANO */}
+        {activeTab === 'piano' && (
+          <div style={{ background: '#16161c', borderRadius: 12, padding: 12 }}>
+            <div style={{ display: 'flex', height: isTablet ? 180 : 140, position: 'relative' }}>
+              {pianoKeys.map(note => (
+                <button key={note} onClick={() => playPiano(note)} style={{ flex: 1, background: 'linear-gradient(180deg, #fff 0%, #e8e8e8 100%)', border: '1px solid #bbb', borderRadius: '0 0 6px 6px', margin: '0 1px', cursor: 'pointer', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', paddingBottom: 8, fontSize: 10, color: '#666', fontWeight: 600 }}>{note.replace(/\d/, '')}</button>
+              ))}
+              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: isTablet ? 120 : 85, display: 'flex', pointerEvents: 'none' }}>
+                {blackKeys.map((note, i) => (
+                  <div key={i} style={{ flex: 1, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
+                    {note && <button onClick={() => playPiano(note)} style={{ width: '70%', maxWidth: 28, background: 'linear-gradient(180deg, #444 0%, #111 100%)', borderRadius: '0 0 4px 4px', cursor: 'pointer', pointerEvents: 'auto', border: 'none' }} />}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* PADS */}
+        {activeTab === 'pads' && (
+          <div style={{ display: 'grid', gridTemplateColumns: isTablet ? 'repeat(3, 1fr)' : 'repeat(2, 1fr)', gap: 12 }}>
+            {padChords.map(pad => (
+              <button key={pad.chord} onClick={() => playPad(pad.chord)} style={{ aspectRatio: 1.5, background: pad.gradient, border: 'none', borderRadius: 16, cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                <span style={{ fontSize: 24, fontWeight: 700, color: '#fff' }}>{pad.chord}</span>
+                <span style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.7)' }}>{pad.name}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        
+        {/* LEAD */}
+        {activeTab === 'lead' && (
+          <div style={{ background: '#16161c', borderRadius: 12, padding: 16 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#8888a0', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>Waveform</div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+              {['sawtooth', 'square', 'sine', 'triangle'].map(wave => (
+                <button key={wave} onClick={() => setLeadWave(wave)} style={{ flex: 1, padding: 10, background: leadWave === wave ? '#a855f7' : '#1e1e26', border: `1px solid ${leadWave === wave ? '#a855f7' : '#333340'}`, borderRadius: 8, color: leadWave === wave ? '#fff' : '#8888a0', fontSize: 11, fontWeight: 600, cursor: 'pointer', textTransform: 'uppercase' }}>{wave.slice(0, 3)}</button>
+              ))}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+              {leadNotes.map(note => (
+                <button key={note} onClick={() => playLead(note)} style={{ aspectRatio: 1, background: '#1e1e26', border: '2px solid #333340', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, cursor: 'pointer', color: '#f0f0f5' }}>{note}</button>
+              ))}
+            </div>
+          </div>
+        )}
+        
+        {/* SEQUENCER */}
+        {activeTab === 'seq' && (
+          <div>
+            <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+              <select value={bars} onChange={e => { stopSequencer(); setBars(parseInt(e.target.value)); }} style={{ padding: '10px 14px', fontSize: 14, background: '#1e1e26', color: '#fff', border: '1px solid #333340', borderRadius: 8 }}>
+                <option value="1">1 Bar</option>
+                <option value="2">2 Bars</option>
+                <option value="4">4 Bars</option>
+              </select>
+              <select onChange={e => e.target.value && loadPreset(e.target.value)} style={{ padding: '10px 14px', fontSize: 14, background: '#1e1e26', color: '#fff', border: '1px solid #333340', borderRadius: 8 }}>
+                <option value="">Preset...</option>
+                <option value="basic">Basic</option>
+                <option value="psy">Psytrance</option>
+                <option value="hitech">Hi-Tech</option>
+              </select>
+              <button onClick={() => setTracks(prev => prev.map(t => ({ ...t, steps: new Array(bars * 4).fill(false) })))} style={{ padding: '10px 16px', fontSize: 12, fontWeight: 600, background: 'transparent', color: '#ff3b5c', border: '2px solid #ff3b5c', borderRadius: 8, cursor: 'pointer', marginLeft: 'auto' }}>Clear</button>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16, marginBottom: 16, padding: 12, background: '#16161c', borderRadius: 12 }}>
+              <button onClick={() => setCurrentBar((currentBar - 1 + bars) % bars)} style={{ width: 50, height: 50, fontSize: 22, fontWeight: 700, background: '#1e1e26', color: '#fff', border: '2px solid #333340', borderRadius: 10, cursor: 'pointer' }}>◀</button>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Bar {currentBar + 1} of {bars}</div>
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                  {Array.from({ length: bars }, (_, i) => (
+                    <button key={i} onClick={() => setCurrentBar(i)} style={{ width: 14, height: 14, background: i === currentBar ? '#ff3b5c' : '#333340', borderRadius: '50%', border: 'none', cursor: 'pointer', boxShadow: i === currentBar ? '0 0 10px #ff3b5c' : 'none' }} />
+                  ))}
+                </div>
+              </div>
+              <button onClick={() => setCurrentBar((currentBar + 1) % bars)} style={{ width: 50, height: 50, fontSize: 22, fontWeight: 700, background: '#1e1e26', color: '#fff', border: '2px solid #333340', borderRadius: 10, cursor: 'pointer' }}>▶</button>
+            </div>
+            {['drums', 'bass'].map(group => (
+              <div key={group} style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#8888a0', textTransform: 'uppercase', letterSpacing: 1, padding: '8px 0' }}>{group === 'drums' ? '🥁 Drums' : '🔊 Bass'}</div>
+                {tracks.filter(t => t.group === group).map(track => {
+                  const trackIdx = tracks.findIndex(t => t.name === track.name);
+                  return (
+                    <div key={track.name} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                      <div style={{ width: 50, fontSize: 11, fontWeight: 700, textAlign: 'right', flexShrink: 0, color: track.color }}>{track.name}</div>
+                      <button onClick={() => toggleMute(trackIdx)} style={{ width: 34, height: 34, fontSize: 11, fontWeight: 700, background: track.muted ? '#ff3b5c' : '#1e1e26', color: track.muted ? '#fff' : '#8888a0', border: `1px solid ${track.muted ? '#ff3b5c' : '#333340'}`, borderRadius: 6, cursor: 'pointer', flexShrink: 0 }}>M</button>
+                      <div style={{ display: 'flex', gap: 8, flex: 1 }}>
+                        {[0, 1, 2, 3].map(i => {
+                          const stepIdx = startStep + i;
+                          const isActive = track.steps[stepIdx];
+                          const isPlayingStep = seqPlaying && currentStep === stepIdx;
+                          return (
+                            <button key={i} onClick={() => toggleStep(trackIdx, stepIdx)} style={{ flex: 1, aspectRatio: 1, minHeight: 44, maxWidth: isTablet ? 80 : 60, background: isActive ? track.color : '#1e1e26', border: `3px solid ${isActive ? track.color : '#333340'}`, borderRadius: 10, cursor: 'pointer', transform: isPlayingStep ? 'scale(1.05)' : 'none', boxShadow: isPlayingStep ? `0 0 15px ${track.color}` : 'none', transition: 'transform 0.05s' }} />
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+            <div style={{ display: 'flex', justifyContent: 'center', marginTop: 20 }}>
+              <button onClick={seqPlaying ? stopSequencer : startSequencer} style={{ padding: '18px 60px', fontSize: 18, fontWeight: 700, background: seqPlaying ? '#fbbf24' : '#22c55e', color: '#000', border: 'none', borderRadius: 14, cursor: 'pointer' }}>{seqPlaying ? '■ STOP' : '▶ PLAY'}</button>
+            </div>
+          </div>
+        )}
+      </main>
+      
+      <style>{`
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+        input[type="range"] { -webkit-appearance: none; height: 6px; background: #333340; border-radius: 3px; }
+        input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; background: #22d3ee; border-radius: 50%; cursor: pointer; }
+      `}</style>
+    </div>
+  );
+}
+
+export default LoopStudio;
