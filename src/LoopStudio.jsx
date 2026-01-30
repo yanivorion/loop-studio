@@ -330,10 +330,25 @@ function LoopStudio({ config = {} }) {
       reverbMixRef.current = reverbMix;
       
       setAudioReady(true);
+      
+      // Load default sample
+      loadDefaultSample(ctx);
     } catch (err) {
       console.error('Audio init failed:', err);
     }
   }, [mixer.master.volume, fxParams]);
+  
+  const loadDefaultSample = React.useCallback(async (ctx) => {
+    try {
+      const response = await fetch('/loop-studio/default-sample.mp3');
+      const arrayBuffer = await response.arrayBuffer();
+      const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+      setSamplerBuffer(audioBuffer);
+      console.log('✅ Default sample loaded');
+    } catch (err) {
+      console.error('Failed to load default sample:', err);
+    }
+  }, []);
   
   const playToMaster = React.useCallback((node) => {
     if (masterGainRef.current) node.connect(masterGainRef.current);
