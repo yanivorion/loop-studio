@@ -1128,7 +1128,32 @@ function LoopStudio({ config = {} }) {
           {['DRUMS', 'KEYS', 'PADS', 'LEAD'].map((label, idx) => (
             <div key={label} style={{ flex: 1, height: 40, background: '#1e1e26', borderRadius: 8, position: 'relative', border: `2px solid ${isRecording ? '#ff3b5c' : loopTracks[idx].length ? '#333340' : 'transparent'}` }}>
               <div style={{ position: 'absolute', top: 4, left: 6, fontSize: 9, fontWeight: 600, color: '#8888a0', textTransform: 'uppercase' }}>{label}</div>
-              <div style={{ position: 'absolute', top: 0, bottom: 0, width: 2, background: '#f0f0f5', left: `${playheadPos}%`, transition: 'left 0.05s linear' }} />
+              
+              {/* Visual markers for recorded events */}
+              {loopTracks[idx].map((evt, evtIdx) => {
+                const position = (evt.time / loopLength) * 100;
+                const colors = ['#ff3b5c', '#22d3ee', '#a855f7', '#fbbf24'];
+                return (
+                  <div 
+                    key={evtIdx} 
+                    style={{ 
+                      position: 'absolute', 
+                      top: '50%', 
+                      transform: 'translateY(-50%)',
+                      left: `${position}%`, 
+                      width: 6, 
+                      height: 6, 
+                      background: colors[idx],
+                      borderRadius: '50%',
+                      boxShadow: `0 0 8px ${colors[idx]}`,
+                      zIndex: 1
+                    }} 
+                  />
+                );
+              })}
+              
+              {/* Playhead */}
+              <div style={{ position: 'absolute', top: 0, bottom: 0, width: 2, background: '#f0f0f5', left: `${playheadPos}%`, transition: 'left 0.05s linear', zIndex: 2, boxShadow: '0 0 10px rgba(255,255,255,0.5)' }} />
             </div>
           ))}
         </div>
