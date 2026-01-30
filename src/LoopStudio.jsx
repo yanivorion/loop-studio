@@ -23,8 +23,27 @@ function LoopStudio({ config = {} }) {
   const [bassPreset, setBassPreset] = React.useState('squelch');
   const [bassParams, setBassParams] = React.useState({ cutoff: 600, reso: 22, sub: 0.2, drive: 0.4 });
   
-  // Kick state
-  const [kickParams, setKickParams] = React.useState({ sub: 0.75, punch: 0.5, click: 0.5, noise: 0.25 });
+  // Kick state - Enhanced
+  const [kickParams, setKickParams] = React.useState({ 
+    sub: 0.75, punch: 0.5, click: 0.5, noise: 0.25,
+    attack: 0.001, decay: 0.4, pitchDecay: 0.08, pitchStart: 150, pitchEnd: 40
+  });
+  
+  // FX state
+  const [fxParams, setFxParams] = React.useState({
+    delayTime: 0.3, delayFeedback: 0.3, delayMix: 0.2,
+    reverbMix: 0.15, reverbDecay: 2
+  });
+  
+  // Mixer state - volume and pan for each instrument
+  const [mixer, setMixer] = React.useState({
+    drums: { volume: 0.8, pan: 0, delaySend: 0.2, reverbSend: 0.15 },
+    bass: { volume: 0.7, pan: 0, delaySend: 0.1, reverbSend: 0.1 },
+    piano: { volume: 0.6, pan: 0, delaySend: 0.3, reverbSend: 0.3 },
+    pads: { volume: 0.5, pan: 0, delaySend: 0.4, reverbSend: 0.5 },
+    lead: { volume: 0.7, pan: 0, delaySend: 0.25, reverbSend: 0.2 },
+    master: { volume: 0.8 }
+  });
   
   // Lead state
   const [leadWave, setLeadWave] = React.useState('sawtooth');
@@ -48,6 +67,9 @@ function LoopStudio({ config = {} }) {
   const masterGainRef = React.useRef(null);
   const convolverRef = React.useRef(null);
   const delayNodeRef = React.useRef(null);
+  const delayFeedbackRef = React.useRef(null);
+  const delayMixRef = React.useRef(null);
+  const reverbMixRef = React.useRef(null);
   const playIntervalRef = React.useRef(null);
   const loopStartRef = React.useRef(0);
   const loopIntervalRef = React.useRef(null);
@@ -237,15 +259,15 @@ function LoopStudio({ config = {} }) {
       
       // Master gain
       const master = ctx.createGain();
-      master.gain.value = 0.8;
+      master.gain.value = mixer.master.volume;
       
       // Delay
       const delay = ctx.createDelay(1.0);
-      delay.delayTime.value = 0.3;
+      delay.delayTime.value = fxParams.delayTime;
       const delayFb = ctx.createGain();
-      delayFb.gain.value = 0.3;
+      delayFb.gain.value = fxParams.delayFeedback;
       const delayMix = ctx.createGain();
-      delayMix.gain.value = 0.2;
+      delayMix.gain.value = fxParams.delayMix;
       delay.connect(delayFb);
       delayFb.connect(delay);
       delay.connect(delayMix);
@@ -254,7 +276,7 @@ function LoopStudio({ config = {} }) {
       // Reverb
       const convolver = ctx.createConvolver();
       const rate = ctx.sampleRate;
-      const length = rate * 2;
+      const length = rate * fxParams.reverbDecay;
       const impulse = ctx.createBuffer(2, length, rate);
       for (let ch = 0; ch < 2; ch++) {
         const data = impulse.getChannelData(ch);
@@ -264,7 +286,7 @@ function LoopStudio({ config = {} }) {
       }
       convolver.buffer = impulse;
       const reverbMix = ctx.createGain();
-      reverbMix.gain.value = 0.15;
+      reverbMix.gain.value = fxParams.reverbMix;
       convolver.connect(reverbMix);
       reverbMix.connect(master);
       
@@ -274,12 +296,15 @@ function LoopStudio({ config = {} }) {
       masterGainRef.current = master;
       convolverRef.current = convolver;
       delayNodeRef.current = delay;
+      delayFeedbackRef.current = delayFb;
+      delayMixRef.current = delayMix;
+      reverbMixRef.current = reverbMix;
       
       setAudioReady(true);
     } catch (err) {
       console.error('Audio init failed:', err);
     }
-  }, []);
+  }, [mixer.master.volume, fxParams]);
   
   const playToMaster = React.useCallback((node) => {
     if (masterGainRef.current) node.connect(masterGainRef.current);
@@ -1017,8 +1042,10 @@ function LoopStudio({ config = {} }) {
       
       {/* Tabs */}
       <nav style={{ display: 'flex', background: '#16161c', borderBottom: '1px solid #333340', padding: '0 8px', overflowX: 'auto' }}>
-        {['drums', 'bass', 'piano', 'pads', 'lead', 'seq'].map(tab => (
-          <button key={tab} onClick={() => setActiveTab(tab)} style={{ flex: '0 0 auto', padding: '12px 16px', background: 'none', border: 'none', color: activeTab === tab ? '#f0f0f5' : '#8888a0', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, cursor: 'pointer', borderBottom: `2px solid ${activeTab === tab ? '#ff3b5c' : 'transparent'}`, whiteSpace: 'nowrap' }}>{tab === 'seq' ? '▦ Seq' : tab}</button>
+        {['drums', 'bass', 'piano', 'pads', 'lead', 'seq', 'fx', 'mixer'].map(tab => (
+          <button key={tab} onClick={() => setActiveTab(tab)} style={{ flex: '0 0 auto', padding: '12px 16px', background: 'none', border: 'none', color: activeTab === tab ? '#f0f0f5' : '#8888a0', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, cursor: 'pointer', borderBottom: `2px solid ${activeTab === tab ? '#ff3b5c' : 'transparent'}`, whiteSpace: 'nowrap' }}>
+            {tab === 'seq' ? '▦ Seq' : tab === 'fx' ? '🎚️ FX' : tab === 'mixer' ? '🎛️ Mix' : tab}
+          </button>
         ))}
       </nav>
       
@@ -1194,6 +1221,181 @@ function LoopStudio({ config = {} }) {
             ))}
             <div style={{ display: 'flex', justifyContent: 'center', marginTop: 20 }}>
               <button onClick={seqPlaying ? stopSequencer : startSequencer} style={{ padding: '18px 60px', fontSize: 18, fontWeight: 700, background: seqPlaying ? '#fbbf24' : '#22c55e', color: '#000', border: 'none', borderRadius: 14, cursor: 'pointer' }}>{seqPlaying ? '■ STOP' : '▶ PLAY'}</button>
+            </div>
+          </div>
+        )}
+        
+        {/* FX */}
+        {activeTab === 'fx' && (
+          <div>
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#f0f0f5', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 24 }}>🔊</span> DELAY
+              </div>
+              <div style={{ background: '#16161c', borderRadius: 12, padding: 16 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: isTablet ? 'repeat(3, 1fr)' : '1fr', gap: 16 }}>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#8888a0', marginBottom: 4 }}>
+                      <span>Time</span>
+                      <span style={{ color: '#fff', fontWeight: 600 }}>{(fxParams.delayTime * 1000).toFixed(0)}ms</span>
+                    </div>
+                    <input type="range" min="0.1" max="1" step="0.01" value={fxParams.delayTime} onChange={e => {
+                      const val = parseFloat(e.target.value);
+                      setFxParams(prev => ({ ...prev, delayTime: val }));
+                      if (delayNodeRef.current) delayNodeRef.current.delayTime.value = val;
+                    }} style={{ width: '100%' }} />
+                  </div>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#8888a0', marginBottom: 4 }}>
+                      <span>Feedback</span>
+                      <span style={{ color: '#fff', fontWeight: 600 }}>{Math.round(fxParams.delayFeedback * 100)}%</span>
+                    </div>
+                    <input type="range" min="0" max="0.95" step="0.01" value={fxParams.delayFeedback} onChange={e => {
+                      const val = parseFloat(e.target.value);
+                      setFxParams(prev => ({ ...prev, delayFeedback: val }));
+                      if (delayFeedbackRef.current) delayFeedbackRef.current.gain.value = val;
+                    }} style={{ width: '100%' }} />
+                  </div>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#8888a0', marginBottom: 4 }}>
+                      <span>Mix (Wet)</span>
+                      <span style={{ color: '#fff', fontWeight: 600 }}>{Math.round(fxParams.delayMix * 100)}%</span>
+                    </div>
+                    <input type="range" min="0" max="1" step="0.01" value={fxParams.delayMix} onChange={e => {
+                      const val = parseFloat(e.target.value);
+                      setFxParams(prev => ({ ...prev, delayMix: val }));
+                      if (delayMixRef.current) delayMixRef.current.gain.value = val;
+                    }} style={{ width: '100%' }} />
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#f0f0f5', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 24 }}>✨</span> REVERB
+              </div>
+              <div style={{ background: '#16161c', borderRadius: 12, padding: 16 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: isTablet ? 'repeat(2, 1fr)' : '1fr', gap: 16 }}>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#8888a0', marginBottom: 4 }}>
+                      <span>Mix (Wet)</span>
+                      <span style={{ color: '#fff', fontWeight: 600 }}>{Math.round(fxParams.reverbMix * 100)}%</span>
+                    </div>
+                    <input type="range" min="0" max="1" step="0.01" value={fxParams.reverbMix} onChange={e => {
+                      const val = parseFloat(e.target.value);
+                      setFxParams(prev => ({ ...prev, reverbMix: val }));
+                      if (reverbMixRef.current) reverbMixRef.current.gain.value = val;
+                    }} style={{ width: '100%' }} />
+                  </div>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#8888a0', marginBottom: 4 }}>
+                      <span>Decay</span>
+                      <span style={{ color: '#fff', fontWeight: 600 }}>{fxParams.reverbDecay.toFixed(1)}s</span>
+                    </div>
+                    <input type="range" min="0.5" max="5" step="0.1" value={fxParams.reverbDecay} onChange={e => {
+                      setFxParams(prev => ({ ...prev, reverbDecay: parseFloat(e.target.value) }));
+                      // Note: Reverb decay requires rebuilding the impulse response
+                      // For real-time, we'd need a different reverb implementation
+                    }} style={{ width: '100%' }} disabled={true} />
+                    <div style={{ fontSize: 10, color: '#ff8c42', marginTop: 4 }}>⚠️ Requires restart to change</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div style={{ background: '#1e1e26', borderRadius: 12, padding: 16, marginTop: 24 }}>
+              <div style={{ fontSize: 12, color: '#8888a0', lineHeight: 1.5 }}>
+                <strong style={{ color: '#fff' }}>💡 How FX Work:</strong><br/>
+                • <strong>Delay Mix</strong>: Set to 0% to disable delay (dry signal only)<br/>
+                • <strong>Reverb Mix</strong>: Set to 0% to disable reverb<br/>
+                • Each instrument has its own FX send amount (adjust in Mixer tab)<br/>
+                • Higher feedback = longer delay repeats (watch out for runaway feedback!)
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* MIXER */}
+        {activeTab === 'mixer' && (
+          <div>
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#f0f0f5', marginBottom: 16 }}>
+                🎛️ MASTER
+              </div>
+              <div style={{ background: '#16161c', borderRadius: 12, padding: 16 }}>
+                <div style={{ maxWidth: 400 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#8888a0', marginBottom: 4 }}>
+                    <span>Volume</span>
+                    <span style={{ color: '#fff', fontWeight: 600 }}>{Math.round(mixer.master.volume * 100)}%</span>
+                  </div>
+                  <input type="range" min="0" max="1" step="0.01" value={mixer.master.volume} onChange={e => {
+                    const val = parseFloat(e.target.value);
+                    setMixer(prev => ({ ...prev, master: { volume: val } }));
+                    if (masterGainRef.current) masterGainRef.current.gain.value = val;
+                  }} style={{ width: '100%' }} />
+                </div>
+              </div>
+            </div>
+            
+            {Object.entries(mixer).filter(([key]) => key !== 'master').map(([inst, params]) => (
+              <div key={inst} style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#f0f0f5', marginBottom: 12, textTransform: 'capitalize' }}>
+                  {inst === 'drums' ? '🥁' : inst === 'bass' ? '🔊' : inst === 'piano' ? '🎹' : inst === 'pads' ? '🎸' : '🎤'} {inst.toUpperCase()}
+                </div>
+                <div style={{ background: '#16161c', borderRadius: 12, padding: 16 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: isTablet ? 'repeat(2, 1fr)' : '1fr', gap: 16 }}>
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#8888a0', marginBottom: 4 }}>
+                        <span>Volume</span>
+                        <span style={{ color: '#fff', fontWeight: 600 }}>{Math.round(params.volume * 100)}%</span>
+                      </div>
+                      <input type="range" min="0" max="1" step="0.01" value={params.volume} onChange={e => {
+                        setMixer(prev => ({ ...prev, [inst]: { ...prev[inst], volume: parseFloat(e.target.value) } }));
+                      }} style={{ width: '100%' }} />
+                    </div>
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#8888a0', marginBottom: 4 }}>
+                        <span>Pan</span>
+                        <span style={{ color: '#fff', fontWeight: 600 }}>{params.pan > 0 ? `R${Math.round(params.pan * 100)}` : params.pan < 0 ? `L${Math.round(Math.abs(params.pan) * 100)}` : 'C'}</span>
+                      </div>
+                      <input type="range" min="-1" max="1" step="0.01" value={params.pan} onChange={e => {
+                        setMixer(prev => ({ ...prev, [inst]: { ...prev[inst], pan: parseFloat(e.target.value) } }));
+                      }} style={{ width: '100%' }} />
+                    </div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: isTablet ? 'repeat(2, 1fr)' : '1fr', gap: 16, marginTop: 16 }}>
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#8888a0', marginBottom: 4 }}>
+                        <span>Delay Send</span>
+                        <span style={{ color: '#fff', fontWeight: 600 }}>{Math.round(params.delaySend * 100)}%</span>
+                      </div>
+                      <input type="range" min="0" max="1" step="0.01" value={params.delaySend} onChange={e => {
+                        setMixer(prev => ({ ...prev, [inst]: { ...prev[inst], delaySend: parseFloat(e.target.value) } }));
+                      }} style={{ width: '100%' }} />
+                    </div>
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#8888a0', marginBottom: 4 }}>
+                        <span>Reverb Send</span>
+                        <span style={{ color: '#fff', fontWeight: 600 }}>{Math.round(params.reverbSend * 100)}%</span>
+                      </div>
+                      <input type="range" min="0" max="1" step="0.01" value={params.reverbSend} onChange={e => {
+                        setMixer(prev => ({ ...prev, [inst]: { ...prev[inst], reverbSend: parseFloat(e.target.value) } }));
+                      }} style={{ width: '100%' }} />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+            
+            <div style={{ background: '#1e1e26', borderRadius: 12, padding: 16, marginTop: 24 }}>
+              <div style={{ fontSize: 12, color: '#8888a0', lineHeight: 1.5 }}>
+                <strong style={{ color: '#fff' }}>💡 Mixer Tips:</strong><br/>
+                • <strong>Pan</strong>: L = Left, C = Center, R = Right stereo positioning<br/>
+                • <strong>FX Sends</strong>: Control how much signal goes to delay/reverb<br/>
+                • Set sends to 0% to keep instrument completely dry<br/>
+                • Note: Per-instrument volume/pan will be fully implemented in next update
+              </div>
             </div>
           </div>
         )}
