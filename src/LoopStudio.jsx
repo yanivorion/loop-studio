@@ -65,6 +65,75 @@ function LoopStudio({ config = {} }) {
   }, []);
   
   // ═══════════════════════════════════════════════════════════════
+  // SAVE/LOAD SESSION
+  // ═══════════════════════════════════════════════════════════════
+  const saveSession = React.useCallback(() => {
+    const session = {
+      version: '1.0',
+      timestamp: Date.now(),
+      bpm,
+      bars,
+      tracks,
+      loopTracks,
+      bassOctave,
+      bassPreset,
+      bassParams,
+      kickParams,
+      leadWave,
+      activeTab
+    };
+    try {
+      localStorage.setItem('loopStudioSession', JSON.stringify(session));
+      return true;
+    } catch (err) {
+      console.error('Failed to save session:', err);
+      return false;
+    }
+  }, [bpm, bars, tracks, loopTracks, bassOctave, bassPreset, bassParams, kickParams, leadWave, activeTab]);
+  
+  const loadSession = React.useCallback(() => {
+    try {
+      const saved = localStorage.getItem('loopStudioSession');
+      if (!saved) return false;
+      const session = JSON.parse(saved);
+      
+      setBpm(session.bpm || 128);
+      setBars(session.bars || 2);
+      setTracks(session.tracks || tracks);
+      setLoopTracks(session.loopTracks || [[], [], [], []]);
+      setBassOctave(session.bassOctave || 2);
+      setBassPreset(session.bassPreset || 'squelch');
+      setBassParams(session.bassParams || { cutoff: 600, reso: 22, sub: 0.2, drive: 0.4 });
+      setKickParams(session.kickParams || { sub: 0.75, punch: 0.5, click: 0.5, noise: 0.25 });
+      setLeadWave(session.leadWave || 'sawtooth');
+      setActiveTab(session.activeTab || 'drums');
+      
+      return true;
+    } catch (err) {
+      console.error('Failed to load session:', err);
+      return false;
+    }
+  }, [tracks]);
+  
+  const clearSession = React.useCallback(() => {
+    try {
+      localStorage.removeItem('loopStudioSession');
+      window.location.reload();
+    } catch (err) {
+      console.error('Failed to clear session:', err);
+    }
+  }, []);
+  
+  // Auto-save every 10 seconds
+  React.useEffect(() => {
+    if (!audioReady) return;
+    const interval = setInterval(() => {
+      saveSession();
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [audioReady, saveSession]);
+  
+  // ═══════════════════════════════════════════════════════════════
   // AUDIO INITIALIZATION
   // ═══════════════════════════════════════════════════════════════
   const initAudio = React.useCallback(async () => {
@@ -814,12 +883,17 @@ function LoopStudio({ config = {} }) {
       )}
       
       {/* Header */}
-      <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: '#16161c', borderBottom: '1px solid #333340' }}>
+      <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: '#16161c', borderBottom: '1px solid #333340', gap: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ width: 32, height: 32, background: 'linear-gradient(135deg, #ff3b5c, #a855f7)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14 }}>L</div>
           <span style={{ fontSize: 16, fontWeight: 700, letterSpacing: 1 }}>LOOP STUDIO</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button onClick={saveSession} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 600, background: '#22c55e', color: '#000', border: 'none', borderRadius: 8, cursor: 'pointer' }}>💾 Save</button>
+            <button onClick={loadSession} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 600, background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer' }}>📂 Load</button>
+            {isTablet && <button onClick={clearSession} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 600, background: '#ff3b5c', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer' }}>🗑️ New</button>}
+          </div>
           <div style={{ background: '#1e1e26', padding: '6px 12px', borderRadius: 16, fontSize: 13, fontWeight: 600, color: '#22c55e' }}>{bpm} BPM</div>
           <input type="range" min="60" max="180" value={bpm} onChange={e => setBpm(parseInt(e.target.value))} style={{ width: 80 }} />
         </div>
@@ -982,16 +1056,22 @@ function LoopStudio({ config = {} }) {
               <button onClick={() => setTracks(prev => prev.map(t => ({ ...t, steps: new Array(bars * 4).fill(false) })))} style={{ padding: '10px 16px', fontSize: 12, fontWeight: 600, background: 'transparent', color: '#ff3b5c', border: '2px solid #ff3b5c', borderRadius: 8, cursor: 'pointer', marginLeft: 'auto' }}>Clear</button>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16, marginBottom: 16, padding: 12, background: '#16161c', borderRadius: 12 }}>
-              <button onClick={() => setCurrentBar((currentBar - 1 + bars) % bars)} style={{ width: 50, height: 50, fontSize: 22, fontWeight: 700, background: '#1e1e26', color: '#fff', border: '2px solid #333340', borderRadius: 10, cursor: 'pointer' }}>◀</button>
+              {!isTablet && <button onClick={() => setCurrentBar((currentBar - 1 + bars) % bars)} style={{ width: 50, height: 50, fontSize: 22, fontWeight: 700, background: '#1e1e26', color: '#fff', border: '2px solid #333340', borderRadius: 10, cursor: 'pointer' }}>◀</button>}
               <div style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Bar {currentBar + 1} of {bars}</div>
+                <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>
+                  {isTablet ? `Bars ${currentBar + 1}-${Math.min(currentBar + 2, bars)}` : `Bar ${currentBar + 1}`} of {bars}
+                </div>
                 <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
-                  {Array.from({ length: bars }, (_, i) => (
-                    <button key={i} onClick={() => setCurrentBar(i)} style={{ width: 14, height: 14, background: i === currentBar ? '#ff3b5c' : '#333340', borderRadius: '50%', border: 'none', cursor: 'pointer', boxShadow: i === currentBar ? '0 0 10px #ff3b5c' : 'none' }} />
-                  ))}
+                  {Array.from({ length: isTablet ? Math.ceil(bars / 2) : bars }, (_, i) => {
+                    const barNum = isTablet ? i * 2 : i;
+                    const isActive = isTablet ? (currentBar === barNum || currentBar === barNum + 1) : currentBar === barNum;
+                    return (
+                      <button key={i} onClick={() => setCurrentBar(barNum)} style={{ width: 14, height: 14, background: isActive ? '#ff3b5c' : '#333340', borderRadius: '50%', border: 'none', cursor: 'pointer', boxShadow: isActive ? '0 0 10px #ff3b5c' : 'none' }} />
+                    );
+                  })}
                 </div>
               </div>
-              <button onClick={() => setCurrentBar((currentBar + 1) % bars)} style={{ width: 50, height: 50, fontSize: 22, fontWeight: 700, background: '#1e1e26', color: '#fff', border: '2px solid #333340', borderRadius: 10, cursor: 'pointer' }}>▶</button>
+              {!isTablet && <button onClick={() => setCurrentBar((currentBar + 1) % bars)} style={{ width: 50, height: 50, fontSize: 22, fontWeight: 700, background: '#1e1e26', color: '#fff', border: '2px solid #333340', borderRadius: 10, cursor: 'pointer' }}>▶</button>}
             </div>
             {['drums', 'bass'].map(group => (
               <div key={group} style={{ marginBottom: 16 }}>
@@ -1002,13 +1082,13 @@ function LoopStudio({ config = {} }) {
                     <div key={track.name} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                       <div style={{ width: 50, fontSize: 11, fontWeight: 700, textAlign: 'right', flexShrink: 0, color: track.color }}>{track.name}</div>
                       <button onClick={() => toggleMute(trackIdx)} style={{ width: 34, height: 34, fontSize: 11, fontWeight: 700, background: track.muted ? '#ff3b5c' : '#1e1e26', color: track.muted ? '#fff' : '#8888a0', border: `1px solid ${track.muted ? '#ff3b5c' : '#333340'}`, borderRadius: 6, cursor: 'pointer', flexShrink: 0 }}>M</button>
-                      <div style={{ display: 'flex', gap: 8, flex: 1 }}>
-                        {[0, 1, 2, 3].map(i => {
+                      <div style={{ display: 'flex', gap: isTablet ? 4 : 8, flex: 1 }}>
+                        {(isTablet ? [0, 1, 2, 3, 4, 5, 6, 7] : [0, 1, 2, 3]).map(i => {
                           const stepIdx = startStep + i;
                           const isActive = track.steps[stepIdx];
                           const isPlayingStep = seqPlaying && currentStep === stepIdx;
                           return (
-                            <button key={i} onClick={() => toggleStep(trackIdx, stepIdx)} style={{ flex: 1, aspectRatio: 1, minHeight: 44, maxWidth: isTablet ? 80 : 60, background: isActive ? track.color : '#1e1e26', border: `3px solid ${isActive ? track.color : '#333340'}`, borderRadius: 10, cursor: 'pointer', transform: isPlayingStep ? 'scale(1.05)' : 'none', boxShadow: isPlayingStep ? `0 0 15px ${track.color}` : 'none', transition: 'transform 0.05s' }} />
+                            <button key={i} onClick={() => toggleStep(trackIdx, stepIdx)} style={{ flex: 1, aspectRatio: 1, minHeight: isTablet ? 36 : 44, background: isActive ? track.color : '#1e1e26', border: `3px solid ${isActive ? track.color : '#333340'}`, borderRadius: isTablet ? 6 : 10, cursor: 'pointer', transform: isPlayingStep ? 'scale(1.05)' : 'none', boxShadow: isPlayingStep ? `0 0 15px ${track.color}` : 'none', transition: 'transform 0.05s' }} />
                           );
                         })}
                       </div>
