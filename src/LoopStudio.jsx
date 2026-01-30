@@ -124,6 +124,91 @@ function LoopStudio({ config = {} }) {
     }
   }, []);
   
+  // Download session as JSON file
+  const downloadSession = React.useCallback(() => {
+    const session = {
+      version: '1.0',
+      timestamp: Date.now(),
+      name: `LoopStudio-${new Date().toISOString().split('T')[0]}`,
+      bpm,
+      bars,
+      tracks,
+      loopTracks,
+      bassOctave,
+      bassPreset,
+      bassParams,
+      kickParams,
+      leadWave,
+      activeTab
+    };
+    
+    try {
+      const json = JSON.stringify(session, null, 2);
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${session.name}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      return true;
+    } catch (err) {
+      console.error('Failed to download session:', err);
+      return false;
+    }
+  }, [bpm, bars, tracks, loopTracks, bassOctave, bassPreset, bassParams, kickParams, leadWave, activeTab]);
+  
+  // Upload/Import session from JSON file
+  const uploadSessionRef = React.useRef(null);
+  
+  const handleFileUpload = React.useCallback((event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const session = JSON.parse(e.target?.result);
+        
+        // Validate session structure
+        if (!session.version || !session.bpm) {
+          alert('Invalid session file format');
+          return;
+        }
+        
+        // Load session data
+        setBpm(session.bpm || 128);
+        setBars(session.bars || 2);
+        setTracks(session.tracks || tracks);
+        setLoopTracks(session.loopTracks || [[], [], [], []]);
+        setBassOctave(session.bassOctave || 2);
+        setBassPreset(session.bassPreset || 'squelch');
+        setBassParams(session.bassParams || { cutoff: 600, reso: 22, sub: 0.2, drive: 0.4 });
+        setKickParams(session.kickParams || { sub: 0.75, punch: 0.5, click: 0.5, noise: 0.25 });
+        setLeadWave(session.leadWave || 'sawtooth');
+        setActiveTab(session.activeTab || 'drums');
+        
+        // Also save to localStorage
+        localStorage.setItem('loopStudioSession', JSON.stringify(session));
+        
+        alert('✅ Session loaded successfully!');
+      } catch (err) {
+        console.error('Failed to load session:', err);
+        alert('❌ Failed to load session file. Please check the file format.');
+      }
+    };
+    reader.readAsText(file);
+    
+    // Reset input so same file can be uploaded again
+    event.target.value = '';
+  }, [tracks]);
+  
+  const triggerFileUpload = React.useCallback(() => {
+    uploadSessionRef.current?.click();
+  }, []);
+  
   // Auto-save every 10 seconds
   React.useEffect(() => {
     if (!audioReady) return;
@@ -883,20 +968,30 @@ function LoopStudio({ config = {} }) {
       )}
       
       {/* Header */}
-      <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: '#16161c', borderBottom: '1px solid #333340', gap: 12 }}>
+      <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: '#16161c', borderBottom: '1px solid #333340', gap: 12, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ width: 32, height: 32, background: 'linear-gradient(135deg, #ff3b5c, #a855f7)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14 }}>L</div>
           <span style={{ fontSize: 16, fontWeight: 700, letterSpacing: 1 }}>LOOP STUDIO</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <button onClick={saveSession} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 600, background: '#22c55e', color: '#000', border: 'none', borderRadius: 8, cursor: 'pointer' }}>💾 Save</button>
-            <button onClick={loadSession} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 600, background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer' }}>📂 Load</button>
-            {isTablet && <button onClick={clearSession} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 600, background: '#ff3b5c', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer' }}>🗑️ New</button>}
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <button onClick={saveSession} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 600, background: '#22c55e', color: '#000', border: 'none', borderRadius: 8, cursor: 'pointer', whiteSpace: 'nowrap' }}>💾 Save</button>
+            <button onClick={loadSession} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 600, background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', whiteSpace: 'nowrap' }}>📂 Load</button>
+            <button onClick={downloadSession} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 600, background: '#8b5cf6', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', whiteSpace: 'nowrap' }}>⬇️ Export</button>
+            <button onClick={triggerFileUpload} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 600, background: '#f59e0b', color: '#000', border: 'none', borderRadius: 8, cursor: 'pointer', whiteSpace: 'nowrap' }}>⬆️ Import</button>
+            {isTablet && <button onClick={clearSession} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 600, background: '#ff3b5c', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', whiteSpace: 'nowrap' }}>🗑️ New</button>}
           </div>
           <div style={{ background: '#1e1e26', padding: '6px 12px', borderRadius: 16, fontSize: 13, fontWeight: 600, color: '#22c55e' }}>{bpm} BPM</div>
           <input type="range" min="60" max="180" value={bpm} onChange={e => setBpm(parseInt(e.target.value))} style={{ width: 80 }} />
         </div>
+        {/* Hidden file input */}
+        <input
+          ref={uploadSessionRef}
+          type="file"
+          accept=".json"
+          onChange={handleFileUpload}
+          style={{ display: 'none' }}
+        />
       </header>
       
       {/* Looper */}
