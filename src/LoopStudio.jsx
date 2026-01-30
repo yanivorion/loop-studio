@@ -277,7 +277,10 @@ function LoopStudio({ config = {} }) {
     
     try {
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      console.log('🎵 Audio context created, state:', ctx.state);
+      
       await ctx.resume();
+      console.log('🎵 Audio context resumed, state:', ctx.state);
       
       // iOS unlock
       const buffer = ctx.createBuffer(1, 1, 22050);
@@ -285,10 +288,12 @@ function LoopStudio({ config = {} }) {
       source.buffer = buffer;
       source.connect(ctx.destination);
       source.start(0);
+      console.log('🎵 Unlock sound played');
       
       // Master gain
       const master = ctx.createGain();
       master.gain.value = mixer.master.volume;
+      console.log('🎵 Master gain:', mixer.master.volume);
       
       // Delay
       const delay = ctx.createDelay(1.0);
@@ -320,6 +325,7 @@ function LoopStudio({ config = {} }) {
       reverbMix.connect(master);
       
       master.connect(ctx.destination);
+      console.log('🎵 Audio chain connected to destination');
       
       audioCtxRef.current = ctx;
       masterGainRef.current = master;
@@ -330,6 +336,7 @@ function LoopStudio({ config = {} }) {
       reverbMixRef.current = reverbMix;
       
       setAudioReady(true);
+      console.log('✅ Audio system ready!');
       
       // Load default sample
       loadDefaultSample(ctx);
@@ -374,7 +381,11 @@ function LoopStudio({ config = {} }) {
   // ═══════════════════════════════════════════════════════════════
   const playKick = React.useCallback(() => {
     const ctx = audioCtxRef.current;
-    if (!ctx) return;
+    if (!ctx) {
+      console.error('❌ No audio context!');
+      return;
+    }
+    console.log('🥁 Playing kick');
     const now = ctx.currentTime;
     const attack = kickParams.attack;
     const decay = kickParams.decay;
@@ -1046,7 +1057,7 @@ function LoopStudio({ config = {} }) {
   // RENDER
   // ═══════════════════════════════════════════════════════════════
   return (
-    <div className="loop-studio" style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif", background: '#0c0c10', color: '#f0f0f5', height: '100%', display: 'flex', flexDirection: 'column', maxWidth: isTablet ? '1200px' : '500px', margin: '0 auto', userSelect: 'none', WebkitUserSelect: 'none' }}>
+    <div className="loop-studio" style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif", background: '#0c0c10', color: '#f0f0f5', minHeight: '100vh', display: 'flex', flexDirection: 'column', maxWidth: isTablet ? '1400px' : '500px', margin: '0 auto', userSelect: 'none', WebkitUserSelect: 'none' }}>
       {/* Start Screen */}
       {!audioReady && (
         <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.95)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', zIndex: 1000, gap: 24 }}>
