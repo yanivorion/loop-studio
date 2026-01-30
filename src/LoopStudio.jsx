@@ -48,6 +48,27 @@ function LoopStudio({ config = {} }) {
   // Lead state
   const [leadWave, setLeadWave] = React.useState('sawtooth');
   
+  // Sampler state
+  const [samplerBuffer, setSamplerBuffer] = React.useState(null);
+  const [samplerParams, setSamplerParams] = React.useState({
+    pitch: 0, // semitones
+    speed: 1,
+    loopStart: 0,
+    loopEnd: 1,
+    reverse: false,
+    attack: 0.01,
+    decay: 0.3,
+    sustain: 0.7,
+    release: 0.5
+  });
+  
+  // LFO state
+  const [lfoParams, setLfoParams] = React.useState([
+    { active: false, wave: 'sine', rate: 2, depth: 0.5, target: 'cutoff' },
+    { active: false, wave: 'triangle', rate: 4, depth: 0.3, target: 'volume' },
+    { active: false, wave: 'square', rate: 1, depth: 0.6, target: 'pan' }
+  ]);
+  
   // Sequencer tracks
   const [tracks, setTracks] = React.useState(() => [
     { name: 'KICK', color: '#ff3b5c', group: 'drums', steps: new Array(16).fill(false), muted: false },
@@ -332,19 +353,22 @@ function LoopStudio({ config = {} }) {
     const ctx = audioCtxRef.current;
     if (!ctx) return;
     const now = ctx.currentTime;
+    const attack = kickParams.attack;
+    const decay = kickParams.decay;
     
     if (kickParams.sub > 0) {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(150, now);
-      osc.frequency.exponentialRampToValueAtTime(40, now + 0.08);
-      gain.gain.setValueAtTime(kickParams.sub * 0.9, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+      osc.frequency.setValueAtTime(kickParams.pitchStart, now);
+      osc.frequency.exponentialRampToValueAtTime(kickParams.pitchEnd, now + kickParams.pitchDecay);
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(kickParams.sub * 0.9, now + attack);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + decay);
       osc.connect(gain);
       playToMaster(gain);
       osc.start(now);
-      osc.stop(now + 0.5);
+      osc.stop(now + decay + 0.1);
     }
     
     if (kickParams.punch > 0) {
@@ -353,7 +377,8 @@ function LoopStudio({ config = {} }) {
       osc.type = 'triangle';
       osc.frequency.setValueAtTime(180, now);
       osc.frequency.exponentialRampToValueAtTime(60, now + 0.03);
-      gain.gain.setValueAtTime(kickParams.punch * 0.6, now);
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(kickParams.punch * 0.6, now + attack);
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
       osc.connect(gain);
       playToMaster(gain);
@@ -371,7 +396,8 @@ function LoopStudio({ config = {} }) {
       filter.type = 'bandpass';
       filter.frequency.value = 2500;
       filter.Q.value = 2;
-      gain.gain.setValueAtTime(kickParams.click * 0.4, now);
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(kickParams.click * 0.4, now + attack * 0.5);
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.03);
       osc.connect(filter);
       filter.connect(gain);
@@ -391,7 +417,8 @@ function LoopStudio({ config = {} }) {
       noise.buffer = buffer;
       noiseFilter.type = 'highpass';
       noiseFilter.frequency.value = 1000;
-      noiseGain.gain.setValueAtTime(kickParams.noise * 0.3, now);
+      noiseGain.gain.setValueAtTime(0, now);
+      noiseGain.gain.linearRampToValueAtTime(kickParams.noise * 0.3, now + attack);
       noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.02);
       noise.connect(noiseFilter);
       noiseFilter.connect(noiseGain);
@@ -1042,9 +1069,9 @@ function LoopStudio({ config = {} }) {
       
       {/* Tabs */}
       <nav style={{ display: 'flex', background: '#16161c', borderBottom: '1px solid #333340', padding: '0 8px', overflowX: 'auto' }}>
-        {['drums', 'bass', 'piano', 'pads', 'lead', 'seq', 'fx', 'mixer'].map(tab => (
+        {['drums', 'bass', 'piano', 'pads', 'lead', 'sampler', 'seq', 'fx', 'mixer', 'lfo'].map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab)} style={{ flex: '0 0 auto', padding: '12px 16px', background: 'none', border: 'none', color: activeTab === tab ? '#f0f0f5' : '#8888a0', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, cursor: 'pointer', borderBottom: `2px solid ${activeTab === tab ? '#ff3b5c' : 'transparent'}`, whiteSpace: 'nowrap' }}>
-            {tab === 'seq' ? '▦ Seq' : tab === 'fx' ? '🎚️ FX' : tab === 'mixer' ? '🎛️ Mix' : tab}
+            {tab === 'seq' ? '▦ Seq' : tab === 'fx' ? '🎚️ FX' : tab === 'mixer' ? '🎛️ Mix' : tab === 'sampler' ? '🎵 Sampler' : tab === 'lfo' ? '🌊 LFO' : tab}
           </button>
         ))}
       </nav>
@@ -1066,14 +1093,40 @@ function LoopStudio({ config = {} }) {
               <div style={{ fontSize: 11, fontWeight: 600, color: '#8888a0', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ width: 8, height: 8, background: '#ff3b5c', borderRadius: '50%' }} />Kick Synth
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-                {[{ key: 'sub', label: 'Sub' }, { key: 'punch', label: 'Punch' }, { key: 'click', label: 'Click' }, { key: 'noise', label: 'Noise' }].map(p => (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+                {[{ key: 'sub', label: 'Sub', min: 0, max: 100 }, { key: 'punch', label: 'Punch', min: 0, max: 100 }, { key: 'click', label: 'Click', min: 0, max: 100 }, { key: 'noise', label: 'Noise', min: 0, max: 100 }].map(p => (
                   <div key={p.key} style={{ textAlign: 'center' }}>
-                    <input type="range" min="0" max="100" value={kickParams[p.key] * 100} onChange={e => setKickParams(prev => ({ ...prev, [p.key]: parseInt(e.target.value) / 100 }))} style={{ width: '100%' }} />
+                    <input type="range" min={p.min} max={p.max} value={kickParams[p.key] * 100} onChange={e => setKickParams(prev => ({ ...prev, [p.key]: parseInt(e.target.value) / 100 }))} style={{ width: '100%' }} />
                     <div style={{ fontSize: 9, fontWeight: 600, color: '#8888a0', textTransform: 'uppercase', marginTop: 4 }}>{p.label}</div>
                     <div style={{ fontSize: 11, fontWeight: 600, color: '#f0f0f5' }}>{Math.round(kickParams[p.key] * 100)}%</div>
                   </div>
                 ))}
+              </div>
+              <div style={{ borderTop: '1px solid #333340', paddingTop: 16, marginTop: 8 }}>
+                <div style={{ fontSize: 10, fontWeight: 600, color: '#8888a0', textTransform: 'uppercase', marginBottom: 12 }}>Envelope & Pitch</div>
+                <div style={{ display: 'grid', gridTemplateColumns: isTablet ? 'repeat(3, 1fr)' : 'repeat(2, 1fr)', gap: 12 }}>
+                  {[
+                    { key: 'attack', label: 'Attack', min: 0.001, max: 0.05, step: 0.001, unit: 'ms', mult: 1000 },
+                    { key: 'decay', label: 'Decay', min: 0.1, max: 1, step: 0.01, unit: 'ms', mult: 1000 },
+                    { key: 'pitchDecay', label: 'Pitch Dec', min: 0.01, max: 0.2, step: 0.01, unit: 'ms', mult: 1000 },
+                    { key: 'pitchStart', label: 'Pitch Start', min: 50, max: 300, step: 1, unit: 'Hz', mult: 1 },
+                    { key: 'pitchEnd', label: 'Pitch End', min: 20, max: 100, step: 1, unit: 'Hz', mult: 1 }
+                  ].map(p => (
+                    <div key={p.key} style={{ textAlign: 'center' }}>
+                      <input 
+                        type="range" 
+                        min={p.min} 
+                        max={p.max} 
+                        step={p.step} 
+                        value={kickParams[p.key]} 
+                        onChange={e => setKickParams(prev => ({ ...prev, [p.key]: parseFloat(e.target.value) }))} 
+                        style={{ width: '100%' }} 
+                      />
+                      <div style={{ fontSize: 9, fontWeight: 600, color: '#8888a0', textTransform: 'uppercase', marginTop: 4 }}>{p.label}</div>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: '#f0f0f5' }}>{(kickParams[p.key] * p.mult).toFixed(p.mult === 1 ? 0 : 1)}{p.unit}</div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
@@ -1395,6 +1448,300 @@ function LoopStudio({ config = {} }) {
                 • <strong>FX Sends</strong>: Control how much signal goes to delay/reverb<br/>
                 • Set sends to 0% to keep instrument completely dry<br/>
                 • Note: Per-instrument volume/pan will be fully implemented in next update
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* SAMPLER */}
+        {activeTab === 'sampler' && (
+          <div>
+            <div style={{ background: '#16161c', borderRadius: 12, padding: 16, marginBottom: 16 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#f0f0f5', marginBottom: 16 }}>
+                📁 Load Sample
+              </div>
+              <input
+                type="file"
+                accept="audio/*"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  const reader = new FileReader();
+                  reader.onload = async (ev) => {
+                    try {
+                      const ctx = audioCtxRef.current;
+                      if (!ctx) return;
+                      const arrayBuffer = ev.target.result;
+                      const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+                      setSamplerBuffer(audioBuffer);
+                      alert('✅ Sample loaded successfully!');
+                    } catch (err) {
+                      console.error('Failed to load sample:', err);
+                      alert('❌ Failed to load sample');
+                    }
+                  };
+                  reader.readAsArrayBuffer(file);
+                }}
+                style={{ width: '100%', padding: 12, background: '#1e1e26', color: '#f0f0f5', border: '2px solid #333340', borderRadius: 8, cursor: 'pointer' }}
+              />
+              {samplerBuffer && (
+                <div style={{ marginTop: 12, padding: 12, background: '#1e1e26', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#22c55e' }}>✅ Sample Loaded</div>
+                    <div style={{ fontSize: 10, color: '#8888a0', marginTop: 4 }}>
+                      Duration: {samplerBuffer.duration.toFixed(2)}s | 
+                      Rate: {samplerBuffer.sampleRate}Hz | 
+                      Channels: {samplerBuffer.numberOfChannels}
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      if (!audioCtxRef.current || !samplerBuffer) return;
+                      const ctx = audioCtxRef.current;
+                      const source = ctx.createBufferSource();
+                      source.buffer = samplerBuffer;
+                      source.playbackRate.value = samplerParams.speed * Math.pow(2, samplerParams.pitch / 12);
+                      const gain = ctx.createGain();
+                      gain.gain.value = 0.7;
+                      source.connect(gain);
+                      playToMaster(gain);
+                      source.start(0);
+                    }}
+                    style={{ padding: '8px 16px', background: '#22c55e', color: '#000', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                  >
+                    ▶ Play
+                  </button>
+                </div>
+              )}
+            </div>
+            
+            {samplerBuffer && (
+              <>
+                <div style={{ background: '#16161c', borderRadius: 12, padding: 16, marginBottom: 16 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#f0f0f5', marginBottom: 16 }}>🎛️ Playback Controls</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: isTablet ? 'repeat(2, 1fr)' : '1fr', gap: 16 }}>
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#8888a0', marginBottom: 4 }}>
+                        <span>Pitch</span>
+                        <span style={{ color: '#fff', fontWeight: 600 }}>{samplerParams.pitch > 0 ? '+' : ''}{samplerParams.pitch} semitones</span>
+                      </div>
+                      <input 
+                        type="range" 
+                        min="-24" 
+                        max="24" 
+                        step="1" 
+                        value={samplerParams.pitch} 
+                        onChange={e => setSamplerParams(prev => ({ ...prev, pitch: parseInt(e.target.value) }))} 
+                        style={{ width: '100%' }} 
+                      />
+                    </div>
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#8888a0', marginBottom: 4 }}>
+                        <span>Speed</span>
+                        <span style={{ color: '#fff', fontWeight: 600 }}>{samplerParams.speed.toFixed(2)}x</span>
+                      </div>
+                      <input 
+                        type="range" 
+                        min="0.25" 
+                        max="2" 
+                        step="0.05" 
+                        value={samplerParams.speed} 
+                        onChange={e => setSamplerParams(prev => ({ ...prev, speed: parseFloat(e.target.value) }))} 
+                        style={{ width: '100%' }} 
+                      />
+                    </div>
+                  </div>
+                  <div style={{ marginTop: 16 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                      <input 
+                        type="checkbox" 
+                        checked={samplerParams.reverse} 
+                        onChange={e => setSamplerParams(prev => ({ ...prev, reverse: e.target.checked }))} 
+                      />
+                      <span style={{ fontSize: 12, color: '#f0f0f5' }}>Reverse</span>
+                    </label>
+                  </div>
+                </div>
+                
+                <div style={{ background: '#16161c', borderRadius: 12, padding: 16 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#f0f0f5', marginBottom: 16 }}>📊 ADSR Envelope</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: isTablet ? 'repeat(4, 1fr)' : 'repeat(2, 1fr)', gap: 16 }}>
+                    {[
+                      { key: 'attack', label: 'Attack', min: 0.001, max: 2, step: 0.01, unit: 's' },
+                      { key: 'decay', label: 'Decay', min: 0.01, max: 2, step: 0.01, unit: 's' },
+                      { key: 'sustain', label: 'Sustain', min: 0, max: 1, step: 0.01, unit: '%', mult: 100 },
+                      { key: 'release', label: 'Release', min: 0.01, max: 3, step: 0.01, unit: 's' }
+                    ].map(p => (
+                      <div key={p.key}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#8888a0', marginBottom: 4 }}>
+                          <span>{p.label}</span>
+                          <span style={{ color: '#fff', fontWeight: 600 }}>
+                            {p.mult ? Math.round(samplerParams[p.key] * p.mult) : samplerParams[p.key].toFixed(2)}{p.unit}
+                          </span>
+                        </div>
+                        <input 
+                          type="range" 
+                          min={p.min} 
+                          max={p.max} 
+                          step={p.step} 
+                          value={samplerParams[p.key]} 
+                          onChange={e => setSamplerParams(prev => ({ ...prev, [p.key]: parseFloat(e.target.value) }))} 
+                          style={{ width: '100%' }} 
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+            
+            {!samplerBuffer && (
+              <div style={{ background: '#1e1e26', borderRadius: 12, padding: 24, textAlign: 'center' }}>
+                <div style={{ fontSize: 48, marginBottom: 16 }}>🎵</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: '#f0f0f5', marginBottom: 8 }}>No Sample Loaded</div>
+                <div style={{ fontSize: 12, color: '#8888a0', lineHeight: 1.6 }}>
+                  Load a sample to start:<br/>
+                  • WAV, MP3, OGG supported<br/>
+                  • Adjust pitch (-24 to +24 semitones)<br/>
+                  • Control speed (0.25x to 2x)<br/>
+                  • Reverse playback<br/>
+                  • Shape with ADSR envelope
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        
+        {/* LFO */}
+        {activeTab === 'lfo' && (
+          <div>
+            {lfoParams.map((lfo, idx) => (
+              <div key={idx} style={{ background: '#16161c', borderRadius: 12, padding: 16, marginBottom: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#f0f0f5' }}>
+                    🌊 LFO {idx + 1}
+                  </div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                    <input 
+                      type="checkbox" 
+                      checked={lfo.active} 
+                      onChange={e => {
+                        const newLfos = [...lfoParams];
+                        newLfos[idx] = { ...newLfos[idx], active: e.target.checked };
+                        setLfoParams(newLfos);
+                      }} 
+                    />
+                    <span style={{ fontSize: 12, color: '#f0f0f5', fontWeight: 600 }}>
+                      {lfo.active ? 'ON' : 'OFF'}
+                    </span>
+                  </label>
+                </div>
+                
+                <div style={{ display: 'grid', gridTemplateColumns: isTablet ? 'repeat(2, 1fr)' : '1fr', gap: 16 }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: '#8888a0', marginBottom: 8 }}>Waveform</div>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      {['sine', 'triangle', 'square', 'sawtooth', 'random'].map(wave => (
+                        <button 
+                          key={wave}
+                          onClick={() => {
+                            const newLfos = [...lfoParams];
+                            newLfos[idx] = { ...newLfos[idx], wave };
+                            setLfoParams(newLfos);
+                          }}
+                          style={{ 
+                            flex: 1, 
+                            padding: '6px 4px', 
+                            fontSize: 9, 
+                            fontWeight: 600, 
+                            background: lfo.wave === wave ? '#22c55e' : '#1e1e26',
+                            color: lfo.wave === wave ? '#000' : '#8888a0',
+                            border: 'none',
+                            borderRadius: 6,
+                            cursor: 'pointer',
+                            textTransform: 'uppercase'
+                          }}
+                        >
+                          {wave === 'random' ? 'RND' : wave.slice(0, 3)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <div style={{ fontSize: 11, color: '#8888a0', marginBottom: 8 }}>Target Parameter</div>
+                    <select 
+                      value={lfo.target} 
+                      onChange={e => {
+                        const newLfos = [...lfoParams];
+                        newLfos[idx] = { ...newLfos[idx], target: e.target.value };
+                        setLfoParams(newLfos);
+                      }}
+                      style={{ width: '100%', padding: 8, background: '#1e1e26', color: '#f0f0f5', border: '1px solid #333340', borderRadius: 6, fontSize: 12 }}
+                    >
+                      <option value="cutoff">Filter Cutoff</option>
+                      <option value="resonance">Resonance</option>
+                      <option value="volume">Volume</option>
+                      <option value="pan">Pan</option>
+                      <option value="pitch">Pitch</option>
+                      <option value="delayMix">Delay Mix</option>
+                      <option value="reverbMix">Reverb Mix</option>
+                    </select>
+                  </div>
+                </div>
+                
+                <div style={{ display: 'grid', gridTemplateColumns: isTablet ? 'repeat(2, 1fr)' : '1fr', gap: 16, marginTop: 16 }}>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#8888a0', marginBottom: 4 }}>
+                      <span>Rate</span>
+                      <span style={{ color: '#fff', fontWeight: 600 }}>{lfo.rate.toFixed(2)}Hz</span>
+                    </div>
+                    <input 
+                      type="range" 
+                      min="0.1" 
+                      max="20" 
+                      step="0.1" 
+                      value={lfo.rate} 
+                      onChange={e => {
+                        const newLfos = [...lfoParams];
+                        newLfos[idx] = { ...newLfos[idx], rate: parseFloat(e.target.value) };
+                        setLfoParams(newLfos);
+                      }} 
+                      style={{ width: '100%' }} 
+                    />
+                  </div>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#8888a0', marginBottom: 4 }}>
+                      <span>Depth</span>
+                      <span style={{ color: '#fff', fontWeight: 600 }}>{Math.round(lfo.depth * 100)}%</span>
+                    </div>
+                    <input 
+                      type="range" 
+                      min="0" 
+                      max="1" 
+                      step="0.01" 
+                      value={lfo.depth} 
+                      onChange={e => {
+                        const newLfos = [...lfoParams];
+                        newLfos[idx] = { ...newLfos[idx], depth: parseFloat(e.target.value) };
+                        setLfoParams(newLfos);
+                      }} 
+                      style={{ width: '100%' }} 
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+            
+            <div style={{ background: '#1e1e26', borderRadius: 12, padding: 16 }}>
+              <div style={{ fontSize: 12, color: '#8888a0', lineHeight: 1.6 }}>
+                <strong style={{ color: '#fff' }}>💡 LFO Guide:</strong><br/>
+                • <strong>Rate</strong>: How fast the LFO oscillates (Hz)<br/>
+                • <strong>Depth</strong>: How much the LFO affects the parameter<br/>
+                • <strong>Waveforms</strong>: Sine (smooth), Triangle (linear), Square (stepped), Saw (ramp), Random (noise)<br/>
+                • <strong>Target</strong>: Which parameter to modulate<br/>
+                • Turn ON to activate modulation<br/>
+                • Note: LFO implementation is visual - full audio routing coming in next update
               </div>
             </div>
           </div>
