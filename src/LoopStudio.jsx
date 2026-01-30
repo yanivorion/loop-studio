@@ -1131,9 +1131,42 @@ function LoopStudio({ config = {} }) {
           <div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: isTablet ? 12 : 8 }}>
               {drumPads.map(pad => (
-                <button key={pad.id} onClick={pad.play} style={{ aspectRatio: 1, background: '#16161c', border: `2px solid ${pad.color}`, borderRadius: 12, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, cursor: 'pointer' }}>
-                  <span style={{ fontSize: isTablet ? 28 : 20 }}>{pad.icon}</span>
-                  <span style={{ fontSize: isTablet ? 11 : 9, fontWeight: 700, textTransform: 'uppercase', color: pad.color }}>{pad.name}</span>
+                <button 
+                  key={pad.id} 
+                  onClick={pad.play} 
+                  style={{ 
+                    aspectRatio: 1, 
+                    background: `linear-gradient(135deg, rgba(22, 22, 28, 0.6), rgba(30, 30, 38, 0.8))`, 
+                    border: `3px solid ${pad.color}`, 
+                    borderRadius: 16, 
+                    display: 'flex', 
+                    flexDirection: 'column', 
+                    alignItems: 'center', 
+                    justifyContent: 'center', 
+                    gap: 4, 
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    boxShadow: `0 4px 12px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1)`
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.transform = 'translateY(-2px) scale(1.02)';
+                    e.currentTarget.style.boxShadow = `0 8px 20px ${pad.color}40, inset 0 1px 0 rgba(255,255,255,0.2)`;
+                    e.currentTarget.style.background = `linear-gradient(135deg, ${pad.color}20, rgba(30, 30, 38, 0.9))`;
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = 'translateY(0) scale(1)';
+                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1)';
+                    e.currentTarget.style.background = 'linear-gradient(135deg, rgba(22, 22, 28, 0.6), rgba(30, 30, 38, 0.8))';
+                  }}
+                  onMouseDown={(e) => {
+                    e.currentTarget.style.transform = 'translateY(0) scale(0.95)';
+                  }}
+                  onMouseUp={(e) => {
+                    e.currentTarget.style.transform = 'translateY(-2px) scale(1.02)';
+                  }}
+                >
+                  <span style={{ fontSize: isTablet ? 32 : 24, filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.5))' }}>{pad.icon}</span>
+                  <span style={{ fontSize: isTablet ? 12 : 10, fontWeight: 700, textTransform: 'uppercase', color: pad.color, letterSpacing: 1, textShadow: `0 0 10px ${pad.color}80` }}>{pad.name}</span>
                 </button>
               ))}
             </div>
