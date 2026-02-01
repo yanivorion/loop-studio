@@ -146,62 +146,6 @@ function LoopStudio({ config = {} }) {
   }, []);
   
   // ═══════════════════════════════════════════════════════════════
-  // COMPUTER KEYBOARD MIDI CONTROLLER
-  // ═══════════════════════════════════════════════════════════════
-  
-  // Keyboard to note mapping
-  const keyboardMap = {
-    'q': 'C', 'w': 'C#', 'e': 'D', 'r': 'D#', 't': 'E', 'y': 'F',
-    'u': 'F#', 'i': 'G', 'o': 'G#', 'p': 'A', '[': 'A#', ']': 'B'
-  };
-  
-  React.useEffect(() => {
-    const handleKeyDown = (e) => {
-      // Don't trigger if typing in an input
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
-        return;
-      }
-      
-      const key = e.key.toLowerCase();
-      const note = keyboardMap[key];
-      
-      if (!note) return;
-      
-      e.preventDefault();
-      console.log(`⌨️ Key pressed: ${key} → Note: ${note} → Tab: ${activeTab}`);
-      
-      // Play based on active tab
-      switch (activeTab) {
-        case 'kick':
-          playInstrumentWithEffects(activeInstrumentId);
-          break;
-        case 'percussion':
-          // Map to different percussion sounds
-          const percMap = { 'q': playSnare, 'w': playClap, 'e': playSnap, 'r': () => playHat(false), 't': () => playHat(true), 'y': playTom, 'u': playPerc };
-          if (percMap[key]) percMap[key]();
-          break;
-        case 'bass':
-          playBass(note);
-          break;
-        case 'piano':
-          playPiano(`${note}4`);
-          break;
-        case 'pads':
-          // For pads, map keys to chords
-          const padChordMap = { 'q': 'Cm', 'w': 'Fm', 'e': 'Ab', 'r': 'Gm', 't': 'Eb', 'y': 'Bb' };
-          if (padChordMap[key]) playPad(padChordMap[key]);
-          break;
-        case 'lead':
-          playLead(`${note}4`);
-          break;
-      }
-    };
-    
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeTab, activeInstrumentId, playBass, playPiano, playPad, playLead, playSnare, playClap, playSnap, playHat, playTom, playPerc, playInstrumentWithEffects]);
-  
-  // ═══════════════════════════════════════════════════════════════
   // INSTRUMENT MANAGEMENT (Modular Architecture)
   // ═══════════════════════════════════════════════════════════════
   
@@ -1213,6 +1157,62 @@ function LoopStudio({ config = {} }) {
     
     recordEvent(3, note);
   }, [leadWave, playToMaster, recordEvent]);
+  
+  // ═══════════════════════════════════════════════════════════════
+  // COMPUTER KEYBOARD MIDI CONTROLLER
+  // ═══════════════════════════════════════════════════════════════
+  
+  // Keyboard to note mapping
+  const keyboardMap = {
+    'q': 'C', 'w': 'C#', 'e': 'D', 'r': 'D#', 't': 'E', 'y': 'F',
+    'u': 'F#', 'i': 'G', 'o': 'G#', 'p': 'A', '[': 'A#', ']': 'B'
+  };
+  
+  React.useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Don't trigger if typing in an input
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
+        return;
+      }
+      
+      const key = e.key.toLowerCase();
+      const note = keyboardMap[key];
+      
+      if (!note) return;
+      
+      e.preventDefault();
+      console.log(`⌨️ Key pressed: ${key} → Note: ${note} → Tab: ${activeTab}`);
+      
+      // Play based on active tab
+      switch (activeTab) {
+        case 'kick':
+          playInstrumentWithEffects(activeInstrumentId);
+          break;
+        case 'percussion':
+          // Map to different percussion sounds
+          const percMap = { 'q': playSnare, 'w': playClap, 'e': playSnap, 'r': () => playHat(false), 't': () => playHat(true), 'y': playTom, 'u': playPerc };
+          if (percMap[key]) percMap[key]();
+          break;
+        case 'bass':
+          playBass(note);
+          break;
+        case 'piano':
+          playPiano(`${note}4`);
+          break;
+        case 'pads':
+          // For pads, map keys to chords
+          const padChordMap = { 'q': 'Cm', 'w': 'Fm', 'e': 'Ab', 'r': 'Gm', 't': 'Eb', 'y': 'Bb' };
+          if (padChordMap[key]) playPad(padChordMap[key]);
+          break;
+        case 'lead':
+          playLead(`${note}4`);
+          break;
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeTab, activeInstrumentId, playBass, playPiano, playPad, playLead, playSnare, playClap, playSnap, playHat, playTom, playPerc, playInstrumentWithEffects]);
   
   // ═══════════════════════════════════════════════════════════════
   // LOOPER
