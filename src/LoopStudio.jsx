@@ -1264,6 +1264,20 @@ function LoopStudio({ config = {} }) {
     tracksRef.current = tracks;
   }, [tracks]);
   
+  // Sync kickParams with active instrument
+  React.useEffect(() => {
+    if (activeInstrument && activeInstrument.type === 'kick') {
+      setKickParams(activeInstrument.params);
+    }
+  }, [activeInstrument]);
+  
+  // Sync instrument params when kickParams changes
+  React.useEffect(() => {
+    if (activeInstrument && activeInstrument.type === 'kick') {
+      updateInstrumentParams(activeInstrumentId, kickParams);
+    }
+  }, [kickParams, activeInstrument, activeInstrumentId, updateInstrumentParams]);
+  
   React.useEffect(() => {
     return () => {
       if (playIntervalRef.current) clearInterval(playIntervalRef.current);
@@ -1405,7 +1419,7 @@ function LoopStudio({ config = {} }) {
           <div>
             <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
               <button 
-                onClick={kickPad.play} 
+                onClick={() => playInstrumentWithEffects(activeInstrumentId)} 
                 style={{ 
                   width: isTablet ? '300px' : '200px',
                   height: isTablet ? '300px' : '200px',
@@ -1482,6 +1496,77 @@ function LoopStudio({ config = {} }) {
                 </div>
               </div>
             </div>
+            
+            {/* Effect Chain Section - MODULAR ARCHITECTURE */}
+            {activeInstrument && (
+              <div style={{ background: '#16161c', borderRadius: 12, padding: 16, marginTop: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: '#8888a0', textTransform: 'uppercase', letterSpacing: 1, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ width: 8, height: 8, background: '#22d3ee', borderRadius: '50%' }} />Effect Chain
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={() => duplicateInstrument(activeInstrumentId)} style={{ padding: '6px 12px', fontSize: 10, fontWeight: 700, background: '#1e1e26', color: '#22c55e', border: '2px solid #22c55e', borderRadius: 6, cursor: 'pointer' }}>📋 Duplicate</button>
+                    <button onClick={() => flattenInstrument(activeInstrumentId)} style={{ padding: '6px 12px', fontSize: 10, fontWeight: 700, background: '#1e1e26', color: '#fbbf24', border: '2px solid #fbbf24', borderRadius: 6, cursor: 'pointer' }}>✓ Flatten</button>
+                  </div>
+                </div>
+                
+                {/* Effect Chain List */}
+                {activeInstrument.effectChain.length > 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 12 }}>
+                    {activeInstrument.effectChain.map((effect, idx) => (
+                      <div key={idx} style={{ background: '#1e1e26', borderRadius: 8, padding: 12, border: `2px solid ${effect.active ? '#22d3ee' : '#333340'}` }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <button onClick={() => updateInstrumentEffect(activeInstrumentId, idx, { active: !effect.active })} style={{ padding: '4px 10px', fontSize: 9, fontWeight: 700, background: effect.active ? '#22d3ee' : '#333340', color: effect.active ? '#000' : '#8888a0', border: 'none', borderRadius: 4, cursor: 'pointer' }}>{effect.active ? 'ON' : 'OFF'}</button>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: '#f0f0f5', textTransform: 'uppercase' }}>🌊 {effect.type}</span>
+                          </div>
+                          <button onClick={() => removeInstrumentEffect(activeInstrumentId, idx)} style={{ padding: '4px 8px', fontSize: 10, background: 'transparent', color: '#ff3b5c', border: 'none', cursor: 'pointer' }}>✕</button>
+                        </div>
+                        
+                        {effect.type === 'lfo' && (
+                          <div>
+                            <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
+                              {['sine', 'triangle', 'square', 'sawtooth'].map(wave => (
+                                <button key={wave} onClick={() => updateInstrumentEffect(activeInstrumentId, idx, { wave })} style={{ flex: 1, padding: '4px', fontSize: 8, fontWeight: 700, background: effect.wave === wave ? '#22d3ee' : '#333340', color: effect.wave === wave ? '#000' : '#8888a0', border: 'none', borderRadius: 4, cursor: 'pointer', textTransform: 'uppercase' }}>{wave.slice(0,3)}</button>
+                              ))}
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                              <div>
+                                <div style={{ fontSize: 8, color: '#8888a0', marginBottom: 4 }}>Rate: {effect.rate}Hz</div>
+                                <input type="range" min="0.1" max="20" step="0.1" value={effect.rate} onChange={e => updateInstrumentEffect(activeInstrumentId, idx, { rate: parseFloat(e.target.value) })} style={{ width: '100%' }} />
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 8, color: '#8888a0', marginBottom: 4 }}>Depth: {Math.round(effect.depth * 100)}%</div>
+                                <input type="range" min="0" max="1" step="0.01" value={effect.depth} onChange={e => updateInstrumentEffect(activeInstrumentId, idx, { depth: parseFloat(e.target.value) })} style={{ width: '100%' }} />
+                              </div>
+                              <div>
+                                <select value={effect.target} onChange={e => updateInstrumentEffect(activeInstrumentId, idx, { target: e.target.value })} style={{ width: '100%', padding: '4px', fontSize: 8, background: '#333340', color: '#f0f0f5', border: 'none', borderRadius: 4 }}>
+                                  <option value="pitchStart">Pitch Start</option>
+                                  <option value="pitchEnd">Pitch End</option>
+                                  <option value="sub">Sub</option>
+                                  <option value="punch">Punch</option>
+                                  <option value="click">Click</option>
+                                  <option value="noise">Noise</option>
+                                  <option value="decay">Decay</option>
+                                </select>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ padding: 16, textAlign: 'center', color: '#8888a0', fontSize: 11, fontStyle: 'italic' }}>No effects - Add LFO or Sampler below</div>
+                )}
+                
+                {/* Add Effect Buttons */}
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => addEffectToInstrument(activeInstrumentId, 'lfo')} style={{ flex: 1, padding: '10px', fontSize: 11, fontWeight: 700, background: '#1e1e26', color: '#22d3ee', border: '2px solid #22d3ee', borderRadius: 8, cursor: 'pointer' }}>+ Add LFO</button>
+                  <button onClick={() => addEffectToInstrument(activeInstrumentId, 'sampler')} style={{ flex: 1, padding: '10px', fontSize: 11, fontWeight: 700, background: '#1e1e26', color: '#a855f7', border: '2px solid #a855f7', borderRadius: 8, cursor: 'pointer' }}>+ Add Sampler</button>
+                </div>
+              </div>
+            )}
           </div>
         )}
         
