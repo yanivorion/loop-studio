@@ -19,9 +19,9 @@ function LoopStudio({ config = {} }) {
   const [playheadPos, setPlayheadPos] = React.useState(0);
   
   // Bass state
-  const [bassOctave, setBassOctave] = React.useState(2);
-  const [bassPreset, setBassPreset] = React.useState('squelch');
-  const [bassParams, setBassParams] = React.useState({ cutoff: 600, reso: 22, sub: 0.2, drive: 0.4 });
+  const [bassOctave, setBassOctave] = React.useState(1);
+  const [bassPreset, setBassPreset] = React.useState('hitech');
+  const [bassParams, setBassParams] = React.useState({ cutoff: 268, reso: 1, sub: 0.01, drive: 0.02 });
   
   // Kick state - Enhanced
   const [kickParams, setKickParams] = React.useState({ 
@@ -31,17 +31,17 @@ function LoopStudio({ config = {} }) {
   
   // FX state
   const [fxParams, setFxParams] = React.useState({
-    delayTime: 0.3, delayFeedback: 0.3, delayMix: 0.2,
-    reverbMix: 0.15, reverbDecay: 2
+    delayTime: 0.3, delayFeedback: 0.3, delayMix: 0,
+    reverbMix: 0, reverbDecay: 2
   });
   
   // Mixer state - volume and pan for each instrument
   const [mixer, setMixer] = React.useState({
-    drums: { volume: 0.8, pan: 0, delaySend: 0.2, reverbSend: 0.15 },
-    bass: { volume: 0.7, pan: 0, delaySend: 0.1, reverbSend: 0.1 },
-    piano: { volume: 0.6, pan: 0, delaySend: 0.3, reverbSend: 0.3 },
-    pads: { volume: 0.5, pan: 0, delaySend: 0.4, reverbSend: 0.5 },
-    lead: { volume: 0.7, pan: 0, delaySend: 0.25, reverbSend: 0.2 },
+    drums: { volume: 0.8, pan: 0, delaySend: 0, reverbSend: 0 },
+    bass: { volume: 0.7, pan: 0, delaySend: 0, reverbSend: 0 },
+    piano: { volume: 0.6, pan: 0, delaySend: 0, reverbSend: 0 },
+    pads: { volume: 0.5, pan: 0, delaySend: 0, reverbSend: 0 },
+    lead: { volume: 0.7, pan: 0, delaySend: 0, reverbSend: 0 },
     master: { volume: 0.8 }
   });
   
@@ -1046,8 +1046,9 @@ function LoopStudio({ config = {} }) {
   // ═══════════════════════════════════════════════════════════════
   // DATA
   // ═══════════════════════════════════════════════════════════════
-  const drumPads = [
-    { id: 'kick', name: 'Kick', icon: '●', color: '#ff3b5c', play: playKick },
+  const kickPad = { id: 'kick', name: 'Kick', icon: '●', color: '#ff3b5c', play: playKick };
+  
+  const percussionPads = [
     { id: 'snare', name: 'Snare', icon: '◐', color: '#ff8c42', play: playSnare },
     { id: 'clap', name: 'Clap', icon: '◈', color: '#fbbf24', play: playClap },
     { id: 'snap', name: 'Snap', icon: '◇', color: '#22c55e', play: playSnap },
@@ -1161,9 +1162,9 @@ function LoopStudio({ config = {} }) {
       
       {/* Tabs */}
       <nav style={{ display: 'flex', background: '#16161c', borderBottom: '1px solid #333340', padding: '0 8px', overflowX: 'auto' }}>
-        {['drums', 'bass', 'piano', 'pads', 'lead', 'sampler', 'seq', 'fx', 'mixer', 'lfo'].map(tab => (
+        {['kick', 'percussion', 'bass', 'piano', 'pads', 'lead', 'sampler', 'seq', 'fx', 'mixer', 'lfo'].map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab)} style={{ flex: '0 0 auto', padding: '12px 16px', background: 'none', border: 'none', color: activeTab === tab ? '#f0f0f5' : '#8888a0', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, cursor: 'pointer', borderBottom: `2px solid ${activeTab === tab ? '#ff3b5c' : 'transparent'}`, whiteSpace: 'nowrap' }}>
-            {tab === 'seq' ? '▦ Seq' : tab === 'fx' ? '🎚️ FX' : tab === 'mixer' ? '🎛️ Mix' : tab === 'sampler' ? '🎵 Sampler' : tab === 'lfo' ? '🌊 LFO' : tab}
+            {tab === 'seq' ? '▦ Seq' : tab === 'fx' ? '🎚️ FX' : tab === 'mixer' ? '🎛️ Mix' : tab === 'sampler' ? '🎵 Sampler' : tab === 'lfo' ? '🌊 LFO' : tab === 'kick' ? '🥁 Kick' : tab === 'percussion' ? '🎵 Perc' : tab}
           </button>
         ))}
       </nav>
@@ -1171,50 +1172,49 @@ function LoopStudio({ config = {} }) {
       {/* Main Content */}
       <main style={{ flex: 1, overflow: 'auto', padding: 16 }}>
         {/* DRUMS */}
-        {activeTab === 'drums' && (
+        {/* KICK */}
+        {activeTab === 'kick' && (
           <div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: isTablet ? 12 : 8 }}>
-              {drumPads.map(pad => (
-                <button 
-                  key={pad.id} 
-                  onClick={pad.play} 
-                  style={{ 
-                    aspectRatio: 1, 
-                    background: `linear-gradient(135deg, rgba(22, 22, 28, 0.6), rgba(30, 30, 38, 0.8))`, 
-                    border: `3px solid ${pad.color}`, 
-                    borderRadius: 16, 
-                    display: 'flex', 
-                    flexDirection: 'column', 
-                    alignItems: 'center', 
-                    justifyContent: 'center', 
-                    gap: 4, 
-                    cursor: 'pointer',
-                    transition: 'all 0.2s ease',
-                    boxShadow: `0 4px 12px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1)`
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.transform = 'translateY(-2px) scale(1.02)';
-                    e.currentTarget.style.boxShadow = `0 8px 20px ${pad.color}40, inset 0 1px 0 rgba(255,255,255,0.2)`;
-                    e.currentTarget.style.background = `linear-gradient(135deg, ${pad.color}20, rgba(30, 30, 38, 0.9))`;
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.transform = 'translateY(0) scale(1)';
-                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1)';
-                    e.currentTarget.style.background = 'linear-gradient(135deg, rgba(22, 22, 28, 0.6), rgba(30, 30, 38, 0.8))';
-                  }}
-                  onMouseDown={(e) => {
-                    e.currentTarget.style.transform = 'translateY(0) scale(0.95)';
-                  }}
-                  onMouseUp={(e) => {
-                    e.currentTarget.style.transform = 'translateY(-2px) scale(1.02)';
-                  }}
-                >
-                  <span style={{ fontSize: isTablet ? 32 : 24, filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.5))' }}>{pad.icon}</span>
-                  <span style={{ fontSize: isTablet ? 12 : 10, fontWeight: 700, textTransform: 'uppercase', color: pad.color, letterSpacing: 1, textShadow: `0 0 10px ${pad.color}80` }}>{pad.name}</span>
-                </button>
-              ))}
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
+              <button 
+                onClick={kickPad.play} 
+                style={{ 
+                  width: isTablet ? '300px' : '200px',
+                  height: isTablet ? '300px' : '200px',
+                  background: `linear-gradient(135deg, rgba(22, 22, 28, 0.6), rgba(30, 30, 38, 0.8))`, 
+                  border: `3px solid ${kickPad.color}`, 
+                  borderRadius: 16, 
+                  display: 'flex', 
+                  flexDirection: 'column', 
+                  alignItems: 'center', 
+                  justifyContent: 'center', 
+                  gap: 8, 
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  boxShadow: `0 4px 12px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1)`
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = 'translateY(-2px) scale(1.02)';
+                  e.currentTarget.style.boxShadow = `0 8px 20px ${kickPad.color}40, inset 0 1px 0 rgba(255,255,255,0.2)`;
+                  e.currentTarget.style.background = `linear-gradient(135deg, ${kickPad.color}20, rgba(30, 30, 38, 0.9))`;
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'translateY(0) scale(1)';
+                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1)';
+                  e.currentTarget.style.background = 'linear-gradient(135deg, rgba(22, 22, 28, 0.6), rgba(30, 30, 38, 0.8))';
+                }}
+                onMouseDown={(e) => {
+                  e.currentTarget.style.transform = 'translateY(0) scale(0.95)';
+                }}
+                onMouseUp={(e) => {
+                  e.currentTarget.style.transform = 'translateY(-2px) scale(1.02)';
+                }}
+              >
+                <span style={{ fontSize: isTablet ? 64 : 48, filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.5))' }}>{kickPad.icon}</span>
+                <span style={{ fontSize: isTablet ? 24 : 18, fontWeight: 700, textTransform: 'uppercase', color: kickPad.color, letterSpacing: 2, textShadow: `0 0 10px ${kickPad.color}80` }}>{kickPad.name}</span>
+              </button>
             </div>
-            <div style={{ background: '#16161c', borderRadius: 12, padding: 16, marginTop: 16 }}>
+            <div style={{ background: '#16161c', borderRadius: 12, padding: 16 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: '#8888a0', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ width: 8, height: 8, background: '#ff3b5c', borderRadius: '50%' }} />Kick Synth
               </div>
@@ -1253,6 +1253,53 @@ function LoopStudio({ config = {} }) {
                   ))}
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+        
+        {/* PERCUSSION */}
+        {activeTab === 'percussion' && (
+          <div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: isTablet ? 12 : 8 }}>
+              {percussionPads.map(pad => (
+                <button 
+                  key={pad.id} 
+                  onClick={pad.play} 
+                  style={{ 
+                    aspectRatio: 1, 
+                    background: `linear-gradient(135deg, rgba(22, 22, 28, 0.6), rgba(30, 30, 38, 0.8))`, 
+                    border: `3px solid ${pad.color}`, 
+                    borderRadius: 16, 
+                    display: 'flex', 
+                    flexDirection: 'column', 
+                    alignItems: 'center', 
+                    justifyContent: 'center', 
+                    gap: 4, 
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    boxShadow: `0 4px 12px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1)`
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.transform = 'translateY(-2px) scale(1.02)';
+                    e.currentTarget.style.boxShadow = `0 8px 20px ${pad.color}40, inset 0 1px 0 rgba(255,255,255,0.2)`;
+                    e.currentTarget.style.background = `linear-gradient(135deg, ${pad.color}20, rgba(30, 30, 38, 0.9))`;
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = 'translateY(0) scale(1)';
+                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1)';
+                    e.currentTarget.style.background = 'linear-gradient(135deg, rgba(22, 22, 28, 0.6), rgba(30, 30, 38, 0.8))';
+                  }}
+                  onMouseDown={(e) => {
+                    e.currentTarget.style.transform = 'translateY(0) scale(0.95)';
+                  }}
+                  onMouseUp={(e) => {
+                    e.currentTarget.style.transform = 'translateY(-2px) scale(1.02)';
+                  }}
+                >
+                  <span style={{ fontSize: isTablet ? 32 : 24, filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.5))' }}>{pad.icon}</span>
+                  <span style={{ fontSize: isTablet ? 12 : 10, fontWeight: 700, textTransform: 'uppercase', color: pad.color, letterSpacing: 1, textShadow: `0 0 10px ${pad.color}80` }}>{pad.name}</span>
+                </button>
+              ))}
             </div>
           </div>
         )}
