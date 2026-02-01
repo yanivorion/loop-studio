@@ -1692,6 +1692,7 @@ function LoopStudio({ config = {} }) {
                                 <input type="range" min="0" max="1" step="0.01" value={effect.depth} onChange={e => updateInstrumentEffect(activeInstrumentId, idx, { depth: parseFloat(e.target.value) })} style={{ width: '100%' }} />
                               </div>
                               <div>
+                                <div style={{ fontSize: 8, color: '#8888a0', marginBottom: 4 }}>Target</div>
                                 <select value={effect.target} onChange={e => updateInstrumentEffect(activeInstrumentId, idx, { target: e.target.value })} style={{ width: '100%', padding: '4px', fontSize: 8, background: '#333340', color: '#f0f0f5', border: 'none', borderRadius: 4 }}>
                                   <option value="pitchStart">Pitch Start</option>
                                   <option value="pitchEnd">Pitch End</option>
@@ -1702,6 +1703,9 @@ function LoopStudio({ config = {} }) {
                                   <option value="decay">Decay</option>
                                 </select>
                               </div>
+                            </div>
+                            <div style={{ marginTop: 8, padding: 8, background: '#2a2a35', borderRadius: 4, fontSize: 9, color: '#22d3ee' }}>
+                              💡 Modulating: <strong>{effect.target}</strong> at {effect.rate}Hz
                             </div>
                           </div>
                         )}
@@ -1905,8 +1909,8 @@ function LoopStudio({ config = {} }) {
                                 <input type="range" min="0" max="1" step="0.01" value={effect.depth} onChange={e => updateInstrumentEffect(activeInstrumentId, idx, { depth: parseFloat(e.target.value) })} style={{ width: '100%' }} />
                               </div>
                             </div>
-                            <div style={{ fontSize: 9, color: '#8888a0', marginTop: 8, fontStyle: 'italic' }}>
-                              LFO active - modulates pad volume in real-time
+                            <div style={{ marginTop: 8, padding: 8, background: '#2a2a35', borderRadius: 4, fontSize: 9, color: '#22d3ee' }}>
+                              💡 Modulating <strong>Volume</strong> at {effect.rate}Hz - creates tremolo effect
                             </div>
                           </div>
                         )}
