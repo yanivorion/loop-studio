@@ -17,6 +17,16 @@ function LoopStudio({ config = {} }) {
       effectChain: [],
       muted: false,
       solo: false
+    },
+    {
+      id: 'pads-1',
+      type: 'pads',
+      name: 'Pads 1',
+      color: '#6366f1',
+      params: { chord: 'Cm' },
+      effectChain: [],
+      muted: false,
+      solo: false
     }
   ]);
   
@@ -134,6 +144,62 @@ function LoopStudio({ config = {} }) {
     window.addEventListener('resize', check);
     return () => window.removeEventListener('resize', check);
   }, []);
+  
+  // ═══════════════════════════════════════════════════════════════
+  // COMPUTER KEYBOARD MIDI CONTROLLER
+  // ═══════════════════════════════════════════════════════════════
+  
+  // Keyboard to note mapping
+  const keyboardMap = {
+    'q': 'C', 'w': 'C#', 'e': 'D', 'r': 'D#', 't': 'E', 'y': 'F',
+    'u': 'F#', 'i': 'G', 'o': 'G#', 'p': 'A', '[': 'A#', ']': 'B'
+  };
+  
+  React.useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Don't trigger if typing in an input
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
+        return;
+      }
+      
+      const key = e.key.toLowerCase();
+      const note = keyboardMap[key];
+      
+      if (!note) return;
+      
+      e.preventDefault();
+      console.log(`⌨️ Key pressed: ${key} → Note: ${note} → Tab: ${activeTab}`);
+      
+      // Play based on active tab
+      switch (activeTab) {
+        case 'kick':
+          playInstrumentWithEffects(activeInstrumentId);
+          break;
+        case 'percussion':
+          // Map to different percussion sounds
+          const percMap = { 'q': playSnare, 'w': playClap, 'e': playSnap, 'r': () => playHat(false), 't': () => playHat(true), 'y': playTom, 'u': playPerc };
+          if (percMap[key]) percMap[key]();
+          break;
+        case 'bass':
+          playBass(note);
+          break;
+        case 'piano':
+          playPiano(`${note}4`);
+          break;
+        case 'pads':
+          // For pads, map keys to chords
+          const padChordMap = { 'q': 'Cm', 'w': 'Fm', 'e': 'Ab', 'r': 'Gm', 't': 'Eb', 'y': 'Bb' };
+          if (padChordMap[key]) playPad(padChordMap[key]);
+          break;
+        case 'lead':
+          playLead(`${note}4`);
+          break;
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeTab, activeInstrumentId, playBass, playPiano, playPad, playLead, playSnare, playClap, playSnap, playHat, playTom, playPerc, playInstrumentWithEffects]);
   
   // ═══════════════════════════════════════════════════════════════
   // INSTRUMENT MANAGEMENT (Modular Architecture)
@@ -550,6 +616,8 @@ function LoopStudio({ config = {} }) {
     // Play instrument with modified params
     if (instrument.type === 'kick') {
       playKickWithParams(modifiedParams);
+    } else if (instrument.type === 'pads') {
+      playPadWithParams(modifiedParams);
     }
   }, [instruments, ensureAudioContext]);
   
@@ -632,6 +700,34 @@ function LoopStudio({ config = {} }) {
       playToMaster(noiseGain);
       noise.start(now);
     }
+  }, [playToMaster]);
+  
+  // Pad sound generator (accepts params)
+  const playPadWithParams = React.useCallback((params) => {
+    const ctx = audioCtxRef.current;
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const notes = chords[params.chord];
+    if (!notes) return;
+    
+    console.log('🎸 Playing pad with params:', params);
+    
+    notes.forEach(freq => {
+      for (let d = -2; d <= 2; d++) {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.value = freq * Math.pow(2, d * 0.002);
+        gain.gain.setValueAtTime(0, now);
+        gain.gain.linearRampToValueAtTime(0.06, now + 0.3);
+        gain.gain.setValueAtTime(0.06, now + 1.5);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 3);
+        osc.connect(gain);
+        playToMaster(gain);
+        osc.start(now);
+        osc.stop(now + 3.5);
+      }
+    });
   }, [playToMaster]);
   
   // ═══════════════════════════════════════════════════════════════
@@ -1288,6 +1384,16 @@ function LoopStudio({ config = {} }) {
     }
   }, [kickParams, activeInstrument, activeInstrumentId, updateInstrumentParams]);
   
+  // Auto-select instrument when switching tabs
+  React.useEffect(() => {
+    const tabToType = { 'kick': 'kick', 'pads': 'pads' };
+    const type = tabToType[activeTab];
+    if (type) {
+      const inst = instruments.find(i => i.type === type);
+      if (inst) setActiveInstrumentId(inst.id);
+    }
+  }, [activeTab, instruments]);
+  
   React.useEffect(() => {
     return () => {
       if (playIntervalRef.current) clearInterval(playIntervalRef.current);
@@ -1353,8 +1459,14 @@ function LoopStudio({ config = {} }) {
             <button onClick={triggerFileUpload} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 600, background: '#f59e0b', color: '#000', border: 'none', borderRadius: 8, cursor: 'pointer', whiteSpace: 'nowrap' }}>⬆️ Import</button>
             {isTablet && <button onClick={clearSession} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 600, background: '#ff3b5c', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', whiteSpace: 'nowrap' }}>🗑️ New</button>}
           </div>
-          <div style={{ background: '#1e1e26', padding: '6px 12px', borderRadius: 16, fontSize: 13, fontWeight: 600, color: '#22c55e' }}>{bpm} BPM</div>
-          <input type="range" min="60" max="180" value={bpm} onChange={e => setBpm(parseInt(e.target.value))} style={{ width: 80 }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ background: '#1e1e26', padding: '6px 12px', borderRadius: 16, fontSize: 10, fontWeight: 600, color: '#a855f7', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span>⌨️</span>
+              <span style={{ fontSize: 9 }}>Q-]</span>
+            </div>
+            <div style={{ background: '#1e1e26', padding: '6px 12px', borderRadius: 16, fontSize: 13, fontWeight: 600, color: '#22c55e' }}>{bpm} BPM</div>
+            <input type="range" min="60" max="180" value={bpm} onChange={e => setBpm(parseInt(e.target.value))} style={{ width: 80 }} />
+          </div>
         </div>
         {/* Hidden file input */}
         <input
@@ -1687,13 +1799,88 @@ function LoopStudio({ config = {} }) {
         
         {/* PADS */}
         {activeTab === 'pads' && (
-          <div style={{ display: 'grid', gridTemplateColumns: isTablet ? 'repeat(3, 1fr)' : 'repeat(2, 1fr)', gap: 12 }}>
-            {padChords.map(pad => (
-              <button key={pad.chord} onClick={() => playPad(pad.chord)} style={{ aspectRatio: 1.5, background: pad.gradient, border: 'none', borderRadius: 16, cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                <span style={{ fontSize: 24, fontWeight: 700, color: '#fff' }}>{pad.chord}</span>
-                <span style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.7)' }}>{pad.name}</span>
-              </button>
-            ))}
+          <div>
+            {/* Chord Selector */}
+            <div style={{ background: '#16161c', borderRadius: 12, padding: 16, marginBottom: 16 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#8888a0', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>Select Chord</div>
+              <div style={{ display: 'grid', gridTemplateColumns: isTablet ? 'repeat(3, 1fr)' : 'repeat(2, 1fr)', gap: 12 }}>
+                {padChords.map(pad => (
+                  <button 
+                    key={pad.chord} 
+                    onClick={() => {
+                      updateInstrumentParams(activeInstrumentId, { chord: pad.chord });
+                      playInstrumentWithEffects(activeInstrumentId);
+                    }} 
+                    style={{ 
+                      aspectRatio: 1.5, 
+                      background: activeInstrument?.params.chord === pad.chord ? pad.gradient : '#1e1e26', 
+                      border: `3px solid ${activeInstrument?.params.chord === pad.chord ? '#fff' : '#333340'}`, 
+                      borderRadius: 16, 
+                      cursor: 'pointer', 
+                      display: 'flex', 
+                      flexDirection: 'column', 
+                      alignItems: 'center', 
+                      justifyContent: 'center', 
+                      gap: 8,
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    <span style={{ fontSize: 24, fontWeight: 700, color: '#fff' }}>{pad.chord}</span>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.7)' }}>{pad.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            
+            {/* Effect Chain Section */}
+            {activeInstrument && (
+              <div style={{ background: '#16161c', borderRadius: 12, padding: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: '#8888a0', textTransform: 'uppercase', letterSpacing: 1, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ width: 8, height: 8, background: '#22d3ee', borderRadius: '50%' }} />Effect Chain
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={() => duplicateInstrument(activeInstrumentId)} style={{ padding: '6px 12px', fontSize: 10, fontWeight: 700, background: '#1e1e26', color: '#22c55e', border: '2px solid #22c55e', borderRadius: 6, cursor: 'pointer' }}>📋 Duplicate</button>
+                    <button onClick={() => flattenInstrument(activeInstrumentId)} style={{ padding: '6px 12px', fontSize: 10, fontWeight: 700, background: '#1e1e26', color: '#fbbf24', border: '2px solid #fbbf24', borderRadius: 6, cursor: 'pointer' }}>✓ Flatten</button>
+                  </div>
+                </div>
+                
+                {/* Effect Chain List */}
+                {activeInstrument.effectChain.length > 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 12 }}>
+                    {activeInstrument.effectChain.map((effect, idx) => (
+                      <div key={idx} style={{ background: '#1e1e26', borderRadius: 8, padding: 12, border: `2px solid ${effect.active ? '#22d3ee' : '#333340'}` }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <button onClick={() => updateInstrumentEffect(activeInstrumentId, idx, { active: !effect.active })} style={{ padding: '4px 10px', fontSize: 9, fontWeight: 700, background: effect.active ? '#22d3ee' : '#333340', color: effect.active ? '#000' : '#8888a0', border: 'none', borderRadius: 4, cursor: 'pointer' }}>{effect.active ? 'ON' : 'OFF'}</button>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: '#f0f0f5', textTransform: 'uppercase' }}>🌊 {effect.type}</span>
+                          </div>
+                          <button onClick={() => removeInstrumentEffect(activeInstrumentId, idx)} style={{ padding: '4px 8px', fontSize: 10, background: 'transparent', color: '#ff3b5c', border: 'none', cursor: 'pointer' }}>✕</button>
+                        </div>
+                        
+                        {effect.type === 'lfo' && (
+                          <div>
+                            <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
+                              {['sine', 'triangle', 'square', 'sawtooth'].map(wave => (
+                                <button key={wave} onClick={() => updateInstrumentEffect(activeInstrumentId, idx, { wave })} style={{ flex: 1, padding: '4px', fontSize: 8, fontWeight: 700, background: effect.wave === wave ? '#22d3ee' : '#333340', color: effect.wave === wave ? '#000' : '#8888a0', border: 'none', borderRadius: 4, cursor: 'pointer', textTransform: 'uppercase' }}>{wave.slice(0,3)}</button>
+                              ))}
+                            </div>
+                            <div style={{ fontSize: 9, color: '#fbbf24', marginBottom: 8, fontStyle: 'italic' }}>Note: Pads don't have numeric params yet - LFO visual only</div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ padding: 16, textAlign: 'center', color: '#8888a0', fontSize: 11, fontStyle: 'italic' }}>No effects - Add LFO below</div>
+                )}
+                
+                {/* Add Effect Buttons */}
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => addEffectToInstrument(activeInstrumentId, 'lfo')} style={{ flex: 1, padding: '10px', fontSize: 11, fontWeight: 700, background: '#1e1e26', color: '#22d3ee', border: '2px solid #22d3ee', borderRadius: 8, cursor: 'pointer' }}>+ Add LFO</button>
+                </div>
+              </div>
+            )}
           </div>
         )}
         
