@@ -23,7 +23,7 @@ function LoopStudio({ config = {} }) {
       type: 'pads',
       name: 'Pads 1',
       color: '#6366f1',
-      params: { chord: 'Cm' },
+      params: { chord: 'Cm', volume: 1.0 },
       effectChain: [],
       muted: false,
       solo: false
@@ -195,8 +195,12 @@ function LoopStudio({ config = {} }) {
     setInstruments(prev => prev.map(inst => {
       if (inst.id !== id) return inst;
       
+      // Set default target based on instrument type
+      let defaultTarget = 'pitchStart';
+      if (inst.type === 'pads') defaultTarget = 'volume';
+      
       const newEffect = effectType === 'lfo' 
-        ? { type: 'lfo', active: true, wave: 'sine', rate: 4, depth: 0.5, target: 'pitch' }
+        ? { type: 'lfo', active: true, wave: 'sine', rate: 4, depth: 0.5, target: defaultTarget }
         : { type: 'sampler', active: false, buffer: null, pitch: 0, speed: 1 };
       
       return { ...inst, effectChain: [...inst.effectChain, newEffect] };
@@ -527,7 +531,7 @@ function LoopStudio({ config = {} }) {
         console.log(`🌊 LFO ${idx+1}: ${effect.wave} ${effect.rate}Hz depth:${effect.depth} → ${effect.target}`);
         
         // Calculate LFO value at current time
-        const lfoPhase = (now * effect.rate) % 1;
+        const lfoPhase = (Date.now() / 1000 * effect.rate) % 1;
         let lfoValue = 0;
         
         switch (effect.wave) {
@@ -545,12 +549,35 @@ function LoopStudio({ config = {} }) {
             break;
         }
         
-        // Apply LFO to target parameter
+        // Apply LFO to target parameter with proper scaling
         if (effect.target in modifiedParams) {
           const baseValue = instrument.params[effect.target];
-          const modulation = lfoValue * effect.depth * baseValue;
-          modifiedParams[effect.target] = Math.max(0, baseValue + modulation);
-          console.log(`   Base: ${baseValue} → Modified: ${modifiedParams[effect.target].toFixed(2)} (LFO value: ${lfoValue.toFixed(2)})`);
+          
+          // Different modulation strategies based on parameter
+          switch (effect.target) {
+            case 'pitchStart':
+            case 'pitchEnd':
+              // Pitch: ±1 octave modulation at 100% depth
+              modifiedParams[effect.target] = baseValue * Math.pow(2, lfoValue * effect.depth);
+              break;
+            case 'sub':
+            case 'punch':
+            case 'click':
+            case 'noise':
+              // Amplitude params: 0-1 range, modulate ±depth
+              modifiedParams[effect.target] = Math.max(0, Math.min(1, baseValue + lfoValue * effect.depth * 0.5));
+              break;
+            case 'decay':
+            case 'attack':
+              // Time params: modulate ±50% at 100% depth
+              modifiedParams[effect.target] = Math.max(0.001, baseValue * (1 + lfoValue * effect.depth * 0.5));
+              break;
+            default:
+              // Generic: ±depth * baseValue
+              modifiedParams[effect.target] = Math.max(0, baseValue + lfoValue * effect.depth * baseValue);
+          }
+          
+          console.log(`   Base: ${baseValue.toFixed(2)} → Modified: ${modifiedParams[effect.target].toFixed(2)} (LFO value: ${lfoValue.toFixed(2)})`);
         }
       }
     });
@@ -654,7 +681,10 @@ function LoopStudio({ config = {} }) {
     const notes = chords[params.chord];
     if (!notes) return;
     
-    console.log('🎸 Playing pad with params:', params);
+    // Use volume from params (defaults to 1.0 if not specified)
+    const volume = params.volume !== undefined ? params.volume : 1.0;
+    
+    console.log('🎸 Playing pad with params:', params, 'volume:', volume);
     
     notes.forEach(freq => {
       for (let d = -2; d <= 2; d++) {
@@ -663,8 +693,8 @@ function LoopStudio({ config = {} }) {
         osc.type = 'sawtooth';
         osc.frequency.value = freq * Math.pow(2, d * 0.002);
         gain.gain.setValueAtTime(0, now);
-        gain.gain.linearRampToValueAtTime(0.06, now + 0.3);
-        gain.gain.setValueAtTime(0.06, now + 1.5);
+        gain.gain.linearRampToValueAtTime(0.06 * volume, now + 0.3);
+        gain.gain.setValueAtTime(0.06 * volume, now + 1.5);
         gain.gain.exponentialRampToValueAtTime(0.001, now + 3);
         osc.connect(gain);
         playToMaster(gain);
@@ -1865,7 +1895,19 @@ function LoopStudio({ config = {} }) {
                                 <button key={wave} onClick={() => updateInstrumentEffect(activeInstrumentId, idx, { wave })} style={{ flex: 1, padding: '4px', fontSize: 8, fontWeight: 700, background: effect.wave === wave ? '#22d3ee' : '#333340', color: effect.wave === wave ? '#000' : '#8888a0', border: 'none', borderRadius: 4, cursor: 'pointer', textTransform: 'uppercase' }}>{wave.slice(0,3)}</button>
                               ))}
                             </div>
-                            <div style={{ fontSize: 9, color: '#fbbf24', marginBottom: 8, fontStyle: 'italic' }}>Note: Pads don't have numeric params yet - LFO visual only</div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+                              <div>
+                                <div style={{ fontSize: 8, color: '#8888a0', marginBottom: 4 }}>Rate: {effect.rate}Hz</div>
+                                <input type="range" min="0.1" max="20" step="0.1" value={effect.rate} onChange={e => updateInstrumentEffect(activeInstrumentId, idx, { rate: parseFloat(e.target.value) })} style={{ width: '100%' }} />
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 8, color: '#8888a0', marginBottom: 4 }}>Depth: {Math.round(effect.depth * 100)}%</div>
+                                <input type="range" min="0" max="1" step="0.01" value={effect.depth} onChange={e => updateInstrumentEffect(activeInstrumentId, idx, { depth: parseFloat(e.target.value) })} style={{ width: '100%' }} />
+                              </div>
+                            </div>
+                            <div style={{ fontSize: 9, color: '#8888a0', marginTop: 8, fontStyle: 'italic' }}>
+                              LFO active - modulates pad volume in real-time
+                            </div>
                           </div>
                         )}
                       </div>
