@@ -519,6 +519,7 @@ function LoopStudio({ config = {} }) {
     }
     
     console.log('🎵 Playing instrument:', instrument.name, 'with', instrument.effectChain.length, 'effects');
+    console.log('📊 Effect chain:', JSON.stringify(instrument.effectChain, null, 2));
     
     // Process effect chain to get modified params
     let modifiedParams = { ...instrument.params };
