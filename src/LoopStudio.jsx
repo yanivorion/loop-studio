@@ -2,10 +2,30 @@ import React from 'react';
 
 function LoopStudio({ config = {} }) {
   // ═══════════════════════════════════════════════════════════════
+  // INSTRUMENT INSTANCES STATE (New Modular Architecture)
+  // ═══════════════════════════════════════════════════════════════
+  const [instruments, setInstruments] = React.useState([
+    {
+      id: 'kick-1',
+      type: 'kick',
+      name: 'Kick 1',
+      color: '#ff3b5c',
+      params: { 
+        sub: 0.75, punch: 0.5, click: 0.5, noise: 0.25,
+        attack: 0.001, decay: 0.4, pitchDecay: 0.08, pitchStart: 150, pitchEnd: 40
+      },
+      effectChain: [],
+      muted: false,
+      solo: false
+    }
+  ]);
+  
+  // ═══════════════════════════════════════════════════════════════
   // STATE
   // ═══════════════════════════════════════════════════════════════
   const [audioReady, setAudioReady] = React.useState(false);
-  const [activeTab, setActiveTab] = React.useState('drums');
+  const [activeTab, setActiveTab] = React.useState('kick');
+  const [activeInstrumentId, setActiveInstrumentId] = React.useState('kick-1');
   const [bpm, setBpm] = React.useState(parseInt(config?.defaultBpm || '128'));
   const [bars, setBars] = React.useState(2);
   const [currentBar, setCurrentBar] = React.useState(0);
@@ -23,7 +43,7 @@ function LoopStudio({ config = {} }) {
   const [bassPreset, setBassPreset] = React.useState('hitech');
   const [bassParams, setBassParams] = React.useState({ cutoff: 268, reso: 1, sub: 0.01, drive: 0.02 });
   
-  // Kick state - Enhanced
+  // Legacy kick params (will be migrated to instruments)
   const [kickParams, setKickParams] = React.useState({ 
     sub: 0.75, punch: 0.5, click: 0.5, noise: 0.25,
     attack: 0.001, decay: 0.4, pitchDecay: 0.08, pitchStart: 150, pitchEnd: 40
@@ -113,6 +133,82 @@ function LoopStudio({ config = {} }) {
     check();
     window.addEventListener('resize', check);
     return () => window.removeEventListener('resize', check);
+  }, []);
+  
+  // ═══════════════════════════════════════════════════════════════
+  // INSTRUMENT MANAGEMENT (Modular Architecture)
+  // ═══════════════════════════════════════════════════════════════
+  
+  // Get active instrument
+  const activeInstrument = React.useMemo(() => 
+    instruments.find(inst => inst.id === activeInstrumentId),
+    [instruments, activeInstrumentId]
+  );
+  
+  // Update instrument params
+  const updateInstrumentParams = React.useCallback((id, newParams) => {
+    setInstruments(prev => prev.map(inst => 
+      inst.id === id ? { ...inst, params: { ...inst.params, ...newParams } } : inst
+    ));
+  }, []);
+  
+  // Duplicate instrument
+  const duplicateInstrument = React.useCallback((id) => {
+    const source = instruments.find(inst => inst.id === id);
+    if (!source) return;
+    
+    const count = instruments.filter(inst => inst.type === source.type).length;
+    const newInstrument = {
+      ...source,
+      id: `${source.type}-${count + 1}`,
+      name: `${source.type.charAt(0).toUpperCase() + source.type.slice(1)} ${count + 1}`,
+      params: { ...source.params },
+      effectChain: source.effectChain.map(fx => ({ ...fx }))
+    };
+    
+    setInstruments(prev => [...prev, newInstrument]);
+    setActiveInstrumentId(newInstrument.id);
+  }, [instruments]);
+  
+  // Flatten instrument (commit current effect chain to base params)
+  const flattenInstrument = React.useCallback((id) => {
+    setInstruments(prev => prev.map(inst => {
+      if (inst.id !== id) return inst;
+      // TODO: Apply effect chain processing and save as new base params
+      // For now, just clear the effect chain
+      return { ...inst, effectChain: [] };
+    }));
+  }, []);
+  
+  // Add effect to instrument chain
+  const addEffectToInstrument = React.useCallback((id, effectType) => {
+    setInstruments(prev => prev.map(inst => {
+      if (inst.id !== id) return inst;
+      
+      const newEffect = effectType === 'lfo' 
+        ? { type: 'lfo', active: true, wave: 'sine', rate: 4, depth: 0.5, target: 'pitch' }
+        : { type: 'sampler', active: false, buffer: null, pitch: 0, speed: 1 };
+      
+      return { ...inst, effectChain: [...inst.effectChain, newEffect] };
+    }));
+  }, []);
+  
+  // Update effect in chain
+  const updateInstrumentEffect = React.useCallback((id, effectIndex, updates) => {
+    setInstruments(prev => prev.map(inst => {
+      if (inst.id !== id) return inst;
+      const newChain = [...inst.effectChain];
+      newChain[effectIndex] = { ...newChain[effectIndex], ...updates };
+      return { ...inst, effectChain: newChain };
+    }));
+  }, []);
+  
+  // Remove effect from chain
+  const removeInstrumentEffect = React.useCallback((id, effectIndex) => {
+    setInstruments(prev => prev.map(inst => {
+      if (inst.id !== id) return inst;
+      return { ...inst, effectChain: inst.effectChain.filter((_, i) => i !== effectIndex) };
+    }));
   }, []);
   
   // ═══════════════════════════════════════════════════════════════
@@ -395,6 +491,138 @@ function LoopStudio({ config = {} }) {
       return newTracks;
     });
   }, []);
+  
+  // ═══════════════════════════════════════════════════════════════
+  // MODULAR INSTRUMENT PLAYER (With Effect Chain Processing)
+  // ═══════════════════════════════════════════════════════════════
+  
+  const playInstrumentWithEffects = React.useCallback(async (instrumentId) => {
+    if (!(await ensureAudioContext())) return;
+    const instrument = instruments.find(inst => inst.id === instrumentId);
+    if (!instrument) return;
+    
+    // Process effect chain to get modified params
+    let modifiedParams = { ...instrument.params };
+    const ctx = audioCtxRef.current;
+    const now = ctx.currentTime;
+    
+    // Apply LFO modulations
+    instrument.effectChain.forEach(effect => {
+      if (effect.type === 'lfo' && effect.active) {
+        // Calculate LFO value at current time
+        const lfoPhase = (now * effect.rate) % 1;
+        let lfoValue = 0;
+        
+        switch (effect.wave) {
+          case 'sine':
+            lfoValue = Math.sin(lfoPhase * Math.PI * 2);
+            break;
+          case 'triangle':
+            lfoValue = (lfoPhase < 0.5 ? lfoPhase * 4 - 1 : 3 - lfoPhase * 4);
+            break;
+          case 'square':
+            lfoValue = lfoPhase < 0.5 ? -1 : 1;
+            break;
+          case 'sawtooth':
+            lfoValue = lfoPhase * 2 - 1;
+            break;
+        }
+        
+        // Apply LFO to target parameter
+        if (effect.target in modifiedParams) {
+          const baseValue = instrument.params[effect.target];
+          const modulation = lfoValue * effect.depth * baseValue;
+          modifiedParams[effect.target] = Math.max(0, baseValue + modulation);
+        }
+      }
+    });
+    
+    // Play instrument with modified params
+    if (instrument.type === 'kick') {
+      playKickWithParams(modifiedParams);
+    }
+  }, [instruments, ensureAudioContext]);
+  
+  // Kick sound generator (accepts params)
+  const playKickWithParams = React.useCallback((params) => {
+    const ctx = audioCtxRef.current;
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const attack = params.attack;
+    const decay = params.decay;
+    
+    console.log('🥁 Playing kick with params:', params);
+    
+    if (params.sub > 0) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(params.pitchStart, now);
+      osc.frequency.exponentialRampToValueAtTime(params.pitchEnd, now + params.pitchDecay);
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(params.sub * 0.9, now + attack);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + decay);
+      osc.connect(gain);
+      playToMaster(gain);
+      osc.start(now);
+      osc.stop(now + decay + 0.1);
+    }
+    
+    if (params.punch > 0) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(180, now);
+      osc.frequency.exponentialRampToValueAtTime(60, now + 0.03);
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(params.punch * 0.6, now + attack);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+      osc.connect(gain);
+      playToMaster(gain);
+      osc.start(now);
+      osc.stop(now + 0.2);
+    }
+    
+    if (params.click > 0) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const filter = ctx.createBiquadFilter();
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(1800, now);
+      osc.frequency.exponentialRampToValueAtTime(300, now + 0.02);
+      filter.type = 'bandpass';
+      filter.frequency.value = 2500;
+      filter.Q.value = 2;
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(params.click * 0.4, now + attack * 0.5);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.03);
+      osc.connect(filter);
+      filter.connect(gain);
+      playToMaster(gain);
+      osc.start(now);
+      osc.stop(now + 0.05);
+    }
+    
+    if (params.noise > 0) {
+      const bufLen = Math.floor(ctx.sampleRate * 0.03);
+      const buffer = ctx.createBuffer(1, bufLen, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufLen; i++) data[i] = Math.random() * 2 - 1;
+      const noise = ctx.createBufferSource();
+      const noiseGain = ctx.createGain();
+      const noiseFilter = ctx.createBiquadFilter();
+      noise.buffer = buffer;
+      noiseFilter.type = 'highpass';
+      noiseFilter.frequency.value = 1000;
+      noiseGain.gain.setValueAtTime(0, now);
+      noiseGain.gain.linearRampToValueAtTime(params.noise * 0.3, now + attack);
+      noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.02);
+      noise.connect(noiseFilter);
+      noiseFilter.connect(noiseGain);
+      playToMaster(noiseGain);
+      noise.start(now);
+    }
+  }, [playToMaster]);
   
   // ═══════════════════════════════════════════════════════════════
   // DRUM SOUNDS
