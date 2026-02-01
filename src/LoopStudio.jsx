@@ -499,7 +499,12 @@ function LoopStudio({ config = {} }) {
   const playInstrumentWithEffects = React.useCallback(async (instrumentId) => {
     if (!(await ensureAudioContext())) return;
     const instrument = instruments.find(inst => inst.id === instrumentId);
-    if (!instrument) return;
+    if (!instrument) {
+      console.error('❌ Instrument not found:', instrumentId);
+      return;
+    }
+    
+    console.log('🎵 Playing instrument:', instrument.name, 'with', instrument.effectChain.length, 'effects');
     
     // Process effect chain to get modified params
     let modifiedParams = { ...instrument.params };
@@ -507,8 +512,10 @@ function LoopStudio({ config = {} }) {
     const now = ctx.currentTime;
     
     // Apply LFO modulations
-    instrument.effectChain.forEach(effect => {
+    instrument.effectChain.forEach((effect, idx) => {
       if (effect.type === 'lfo' && effect.active) {
+        console.log(`🌊 LFO ${idx+1}: ${effect.wave} ${effect.rate}Hz depth:${effect.depth} → ${effect.target}`);
+        
         // Calculate LFO value at current time
         const lfoPhase = (now * effect.rate) % 1;
         let lfoValue = 0;
@@ -533,9 +540,12 @@ function LoopStudio({ config = {} }) {
           const baseValue = instrument.params[effect.target];
           const modulation = lfoValue * effect.depth * baseValue;
           modifiedParams[effect.target] = Math.max(0, baseValue + modulation);
+          console.log(`   Base: ${baseValue} → Modified: ${modifiedParams[effect.target].toFixed(2)} (LFO value: ${lfoValue.toFixed(2)})`);
         }
       }
     });
+    
+    console.log('✅ Final params:', modifiedParams);
     
     // Play instrument with modified params
     if (instrument.type === 'kick') {
@@ -1551,6 +1561,12 @@ function LoopStudio({ config = {} }) {
                                 </select>
                               </div>
                             </div>
+                          </div>
+                        )}
+                        
+                        {effect.type === 'sampler' && (
+                          <div style={{ fontSize: 10, color: '#8888a0', fontStyle: 'italic', padding: 8 }}>
+                            Sampler controls coming soon - will allow per-instrument sample manipulation
                           </div>
                         )}
                       </div>
