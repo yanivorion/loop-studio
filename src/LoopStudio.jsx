@@ -2465,11 +2465,11 @@ function LoopStudio({ config = {} }) {
               <div style={{ fontSize: 12, color: '#8888a0', lineHeight: 1.6 }}>
                 <strong style={{ color: '#fff' }}>💡 LFO Guide:</strong><br/>
                 • <strong>Rate</strong>: How fast the LFO oscillates (Hz)<br/>
-                • <strong>Depth</strong>: How much the LFO affects the parameter<br/>
+                • <strong>Depth</strong>: How much the LFO affects the parameter (0-100%)<br/>
                 • <strong>Waveforms</strong>: Sine (smooth), Triangle (linear), Square (stepped), Saw (ramp), Random (noise)<br/>
-                • <strong>Target</strong>: Which parameter to modulate<br/>
+                • <strong>Target</strong>: Which parameter to modulate (pitch, volume, decay, etc.)<br/>
                 • Turn ON to activate modulation<br/>
-                • Note: LFO implementation is visual - full audio routing coming in next update
+                • <strong style={{ color: '#22c55e' }}>✓ Full audio routing active!</strong> LFO modulates in real-time
               </div>
             </div>
           </div>
